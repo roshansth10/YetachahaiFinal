@@ -12,11 +12,12 @@ interface BookCardProps {
   variant?: 'default' | 'horizontal' | 'featured'
   showRank?: number
   onNavigate?: (page: string, data?: unknown) => void
+  priority?: boolean
 }
 
-export default function BookCard({ book, variant = 'default', showRank, onNavigate }: BookCardProps) {
+export default function BookCard({ book, variant = 'default', showRank, onNavigate, priority = false }: BookCardProps) {
   const { addToCart, addToWishlist, removeFromWishlist, isInWishlist } = useStore()
-  const inWishlist = isInWishlist(book.id)
+  const inWishlist = isInWishlist(book.id) || isInWishlist(book.slug)
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -40,176 +41,292 @@ export default function BookCard({ book, variant = 'default', showRank, onNaviga
   }
 
   const handleNavigate = () => {
-    onNavigate?.('book', book.id)
+    onNavigate?.('book', book.slug || book.id)
   }
 
+  // Horizontal variant (e.g. for ranked lists, list view, bestsellers)
   if (variant === 'horizontal') {
     return (
       <motion.div
-        initial={{ opacity: 0, x: -20 }}
+        initial={{ opacity: 0, x: -10 }}
         whileInView={{ opacity: 1, x: 0 }}
         viewport={{ once: true }}
-        className="flex gap-4 p-4 bg-card rounded-2xl shadow-lg hover:shadow-xl transition-shadow"
+        className="group flex gap-4 p-4 bg-card rounded-2xl shadow-sm hover:shadow-md border border-border/60 transition-all hover:border-primary/20"
       >
         {showRank && (
-          <div className="flex items-center justify-center w-8 font-mono text-2xl font-bold text-secondary">
+          <div className="flex items-center justify-center w-8 shrink-0 font-serif text-2xl font-bold text-primary/80">
             {showRank}
           </div>
         )}
-        <button onClick={handleNavigate} className="shrink-0 text-left">
+        <button
+          onClick={handleNavigate}
+          className="shrink-0 relative w-20 h-28 sm:w-24 sm:h-36 bg-[#f7f3eb] dark:bg-muted/40 rounded-xl overflow-hidden flex items-center justify-center p-1.5 focus:outline-none focus:ring-2 focus:ring-primary"
+          aria-label={`View details for ${book.title}`}
+        >
           <img
             src={book.coverImage}
-            alt={book.title}
-            className="w-16 h-24 object-cover rounded-lg"
+            alt={`Cover of ${book.title} by ${book.author}`}
+            loading={priority ? 'eager' : 'lazy'}
+            width={120}
+            height={180}
+            className="w-full h-full object-contain drop-shadow-md group-hover:scale-105 transition-transform duration-300"
           />
         </button>
-        <div className="flex-1 min-w-0">
-          <button onClick={handleNavigate} className="text-left w-full">
-            <h3 className="font-semibold text-foreground truncate hover:text-primary transition-colors">
-              {book.title}
-            </h3>
-          </button>
-          <p className="text-sm text-muted-foreground truncate">{book.author}</p>
-          <div className="flex items-center gap-2 mt-1">
-            <div className="flex items-center gap-1">
-              <Star className="w-3 h-3 fill-secondary text-secondary" />
-              <span className="text-xs font-medium text-foreground">{book.rating}</span>
+        <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
+          <div>
+            <div className="flex items-start justify-between gap-2">
+              <button onClick={handleNavigate} className="text-left focus:outline-none">
+                <h3
+                  title={book.title}
+                  className="font-serif font-semibold text-foreground text-base sm:text-lg line-clamp-1 group-hover:text-primary transition-colors"
+                >
+                  {book.title}
+                </h3>
+              </button>
+              <button
+                onClick={handleWishlistToggle}
+                aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+                className="p-1.5 rounded-full hover:bg-muted transition-colors shrink-0 text-muted-foreground hover:text-primary"
+              >
+                <Heart className={`w-4 h-4 ${inWishlist ? 'fill-primary text-primary' : ''}`} />
+              </button>
             </div>
-            <span className="text-sm font-mono font-medium text-primary">{formatPrice(book.price)}</span>
+            <p className="text-xs sm:text-sm text-muted-foreground truncate">{book.author}</p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+              <span className="text-xs font-medium text-foreground">{book.rating.toFixed(1)}</span>
+              <span className="text-xs text-muted-foreground">({book.reviewCount})</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-border/40">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="font-mono text-sm sm:text-base font-bold text-primary">
+                {formatPrice(book.price)}
+              </span>
+              {book.originalPrice && book.originalPrice > book.price && (
+                <span className="font-mono text-xs text-muted-foreground line-through">
+                  {formatPrice(book.originalPrice)}
+                </span>
+              )}
+            </div>
+            <Button
+              onClick={handleAddToCart}
+              size="sm"
+              variant="outline"
+              className="h-8 px-2.5 sm:px-3 text-xs rounded-lg hover:bg-primary hover:text-primary-foreground border-primary/30"
+            >
+              <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+              <span className="hidden sm:inline">Add</span>
+            </Button>
           </div>
         </div>
       </motion.div>
     )
   }
 
+  // Featured variant (bento / hero spotlight)
   if (variant === 'featured') {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 15 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
-        whileHover={{ y: -8 }}
-        className="group relative bg-card rounded-3xl overflow-hidden shadow-xl cursor-pointer"
-        onClick={handleNavigate}
+        className="group relative bg-card rounded-3xl overflow-hidden shadow-md hover:shadow-xl border border-border/60 transition-all flex flex-col justify-between"
       >
-        <div className="aspect-[3/4] overflow-hidden">
-          <img
-            src={book.coverImage}
-            alt={book.title}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-          />
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-foreground/80 via-foreground/20 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 p-6">
-          <div className="flex items-center gap-2 mb-2">
+        <div
+          onClick={handleNavigate}
+          className="cursor-pointer relative aspect-[3/4] bg-[#f5efe4] dark:bg-muted/40 p-6 flex items-center justify-center overflow-hidden"
+        >
+          {/* Subtle warm backdrop glow */}
+          <div className="absolute inset-0 bg-radial from-amber-50/40 to-transparent pointer-events-none" />
+
+          {/* Badges */}
+          <div className="absolute top-4 left-4 z-10 flex flex-col gap-1.5 pointer-events-none">
             {book.isNewArrival && (
-              <span className="px-2 py-0.5 text-xs font-mono font-medium bg-accent text-accent-foreground rounded">
+              <span className="px-2.5 py-0.5 text-xs font-mono font-semibold bg-emerald-600 text-white rounded-full shadow-sm">
                 NEW
               </span>
             )}
             {book.isBestseller && (
-              <span className="px-2 py-0.5 text-xs font-mono font-medium bg-secondary text-secondary-foreground rounded">
+              <span className="px-2.5 py-0.5 text-xs font-mono font-semibold bg-primary text-primary-foreground rounded-full shadow-sm">
                 BESTSELLER
               </span>
             )}
           </div>
-          <h3 className="text-xl font-semibold text-card mb-1 line-clamp-2">
-            {book.title}
-          </h3>
-          <p className="text-sm text-card/80 mb-3">{book.author}</p>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-lg font-bold text-card">{formatPrice(book.price)}</span>
+
+          {/* Wishlist Button */}
+          <button
+            onClick={handleWishlistToggle}
+            aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+            className="absolute top-4 right-4 z-10 p-2.5 bg-card/90 backdrop-blur-sm rounded-full shadow-md hover:bg-card hover:scale-105 transition-all"
+          >
+            <Heart className={`w-4 h-4 ${inWishlist ? 'fill-primary text-primary' : 'text-foreground/70'}`} />
+          </button>
+
+          {/* Real Full Uncropped Cover */}
+          <img
+            src={book.coverImage}
+            alt={`Cover of ${book.title} by ${book.author}`}
+            loading={priority ? 'eager' : 'lazy'}
+            width={300}
+            height={450}
+            className="h-full w-auto max-w-full object-contain rounded-md drop-shadow-xl group-hover:scale-105 transition-transform duration-500"
+          />
+        </div>
+
+        {/* Content details */}
+        <div className="p-5 sm:p-6 bg-card flex flex-col justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+              <span className="text-xs font-semibold text-foreground">{book.rating.toFixed(1)}</span>
+              <span className="text-xs text-muted-foreground">({book.reviewCount} reviews)</span>
+              <span className="ml-auto text-xs font-mono text-muted-foreground uppercase">{book.genre}</span>
+            </div>
+            <h3
+              title={book.title}
+              onClick={handleNavigate}
+              className="font-serif text-xl font-bold text-foreground line-clamp-2 hover:text-primary transition-colors cursor-pointer"
+            >
+              {book.title}
+            </h3>
+            <p className="text-sm text-muted-foreground mt-0.5">{book.author}</p>
+            <p className="text-xs text-muted-foreground/90 line-clamp-2 mt-2 leading-relaxed">
+              {book.description}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-border/50">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="font-mono text-xl font-bold text-primary">
+                {formatPrice(book.price)}
+              </span>
               {book.originalPrice && book.originalPrice > book.price && (
-                <span className="font-mono text-sm text-card/60 line-through">{formatPrice(book.originalPrice)}</span>
+                <span className="font-mono text-sm text-muted-foreground line-through">
+                  {formatPrice(book.originalPrice)}
+                </span>
               )}
             </div>
-            <div className="flex items-center gap-1 text-card">
-              <Star className="w-4 h-4 fill-secondary text-secondary" />
-              <span className="text-sm font-medium">{book.rating}</span>
-            </div>
+            <Button
+              onClick={handleAddToCart}
+              size="sm"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl px-4"
+            >
+              <ShoppingCart className="w-4 h-4 mr-1.5" />
+              Add to Cart
+            </Button>
           </div>
         </div>
-        <button
-          onClick={handleWishlistToggle}
-          className="absolute top-4 right-4 p-2 bg-card/90 rounded-full hover:bg-card transition-colors"
-        >
-          <Heart className={`w-5 h-5 ${inWishlist ? 'fill-primary text-primary' : 'text-foreground'}`} />
-        </button>
       </motion.div>
     )
   }
 
-  // Default variant
+  // Default Grid Card variant
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 15 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      whileHover={{ y: -4 }}
-      className="group relative bg-card rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-all"
+      className="group relative bg-card rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-border/70 hover:border-primary/30 transition-all flex flex-col h-full"
     >
-      <div onClick={handleNavigate} className="cursor-pointer">
-        <div className="relative aspect-[3/4] overflow-hidden">
-          <img
-            src={book.coverImage}
-            alt={book.title}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-          {/* Badges */}
-          <div className="absolute top-3 left-3 flex flex-col gap-1">
-            {book.isNewArrival && (
-              <span className="px-2 py-0.5 text-xs font-mono font-medium bg-accent text-accent-foreground rounded">
-                NEW
-              </span>
-            )}
-            {book.isBestseller && (
-              <span className="px-2 py-0.5 text-xs font-mono font-medium bg-secondary text-secondary-foreground rounded">
-                BESTSELLER
-              </span>
-            )}
-          </div>
-          {/* Quick Actions */}
-          <div className="absolute inset-x-0 bottom-0 p-3 translate-y-full group-hover:translate-y-0 transition-transform duration-300 bg-gradient-to-t from-foreground/60 to-transparent">
-            <div className="flex gap-2">
-              <Button
-                onClick={handleAddToCart}
-                size="sm"
-                className="flex-1 bg-card text-foreground hover:bg-primary hover:text-primary-foreground"
-              >
-                <ShoppingCart className="w-4 h-4 mr-2" />
-                Add to Cart
-              </Button>
-            </div>
-          </div>
+      {/* Cover Image Box - Fixed 2:3 aspect ratio on soft background */}
+      <div className="relative aspect-[2/3] w-full bg-[#f6f1e8] dark:bg-muted/40 p-3 sm:p-4 flex items-center justify-center overflow-hidden cursor-pointer" onClick={handleNavigate}>
+        {/* Badges */}
+        <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1 pointer-events-none">
+          {book.isNewArrival && (
+            <span className="px-2 py-0.5 text-[10px] sm:text-xs font-mono font-bold bg-emerald-600 text-white rounded-md shadow-xs">
+              NEW
+            </span>
+          )}
+          {book.isBestseller && (
+            <span className="px-2 py-0.5 text-[10px] sm:text-xs font-mono font-bold bg-primary text-primary-foreground rounded-md shadow-xs">
+              BESTSELLER
+            </span>
+          )}
         </div>
-        <div className="p-4">
-          <h3 className="font-semibold text-foreground line-clamp-1 group-hover:text-primary transition-colors">
-            {book.title}
-          </h3>
-          <p className="text-sm text-muted-foreground mb-2">{book.author}</p>
-          <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{book.description}</p>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-lg font-bold text-primary">{formatPrice(book.price)}</span>
-              {book.originalPrice && book.originalPrice > book.price && (
-                <span className="font-mono text-sm text-muted-foreground line-through">{formatPrice(book.originalPrice)}</span>
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              <Star className="w-4 h-4 fill-secondary text-secondary" />
-              <span className="text-sm font-medium text-foreground">{book.rating}</span>
-            </div>
-          </div>
+
+        {/* Wishlist Toggle Button */}
+        <button
+          onClick={handleWishlistToggle}
+          aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+          className="absolute top-2.5 right-2.5 z-10 p-2 bg-card/90 backdrop-blur-sm rounded-full shadow-sm hover:bg-card hover:scale-110 transition-all text-muted-foreground hover:text-primary"
+        >
+          <Heart className={`w-4 h-4 ${inWishlist ? 'fill-primary text-primary' : ''}`} />
+        </button>
+
+        {/* Real Cover Image: Full, Uncropped, Contained with drop shadow */}
+        <img
+          src={book.coverImage}
+          alt={`Cover of ${book.title} by ${book.author}`}
+          loading={priority ? 'eager' : 'lazy'}
+          width={240}
+          height={360}
+          className="h-full w-auto max-w-full object-contain rounded drop-shadow-md group-hover:scale-105 transition-transform duration-300"
+        />
+
+        {/* Quick Add Overlay on desktop hover; accessible on touch via card controls */}
+        <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-background/90 via-background/40 to-transparent translate-y-full group-hover:translate-y-0 transition-transform duration-300 hidden md:flex gap-2 justify-center">
+          <Button
+            onClick={handleAddToCart}
+            size="sm"
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-md rounded-xl text-xs font-medium h-9"
+          >
+            <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
+            Add to Cart
+          </Button>
         </div>
       </div>
-      {/* Wishlist Button */}
-      <button
-        onClick={handleWishlistToggle}
-        className="absolute top-3 right-3 p-2 bg-card/90 rounded-full hover:bg-card transition-colors shadow-lg"
-      >
-        <Heart className={`w-4 h-4 ${inWishlist ? 'fill-primary text-primary' : 'text-muted-foreground'}`} />
-      </button>
+
+      {/* Card Body Details */}
+      <div className="p-3.5 sm:p-4 flex-1 flex flex-col justify-between gap-2.5">
+        <div>
+          {/* Rating Row */}
+          <div className="flex items-center gap-1.5 mb-1">
+            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+            <span className="text-xs font-semibold text-foreground">{book.rating.toFixed(1)}</span>
+            <span className="text-[11px] text-muted-foreground">({book.reviewCount})</span>
+            <span className="ml-auto text-[11px] font-mono text-muted-foreground/80 truncate max-w-[80px]">
+              {book.genre}
+            </span>
+          </div>
+
+          {/* Title - Truncates to 2 lines, shows full title in hover tooltip */}
+          <button onClick={handleNavigate} className="text-left w-full focus:outline-none">
+            <h3
+              title={book.title}
+              className="font-serif font-semibold text-foreground text-sm sm:text-base line-clamp-2 leading-snug hover:text-primary transition-colors"
+            >
+              {book.title}
+            </h3>
+          </button>
+          <p className="text-xs text-muted-foreground mt-0.5 truncate">{book.author}</p>
+        </div>
+
+        {/* Price & Action Row - Always single line with smaller strike-through */}
+        <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-baseline gap-1.5 min-w-0">
+            <span className="font-mono text-sm sm:text-base font-bold text-primary whitespace-nowrap">
+              {formatPrice(book.price)}
+            </span>
+            {book.originalPrice && book.originalPrice > book.price && (
+              <span className="font-mono text-[11px] sm:text-xs text-muted-foreground line-through whitespace-nowrap">
+                {formatPrice(book.originalPrice)}
+              </span>
+            )}
+          </div>
+
+          {/* Mobile-friendly Add to Cart Icon button (visible on mobile / touch) */}
+          <Button
+            onClick={handleAddToCart}
+            size="icon"
+            variant="outline"
+            className="md:hidden h-8 w-8 rounded-lg shrink-0 border-primary/30 hover:bg-primary hover:text-primary-foreground"
+            aria-label={`Add ${book.title} to cart`}
+          >
+            <ShoppingCart className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
     </motion.div>
   )
 }

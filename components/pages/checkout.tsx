@@ -31,7 +31,7 @@ interface CheckoutPageProps {
 }
 
 export default function CheckoutPage({ onNavigate }: CheckoutPageProps) {
-  const { state, setShipping, setPaymentMethod, setCheckoutStep, getCartTotal, placeOrder, dispatch } = useStore()
+  const { state, user, cart, setShipping, setPaymentMethod, setCheckoutStep, getCartTotal, placeOrder, dispatch } = useStore()
   const [isProcessing, setIsProcessing] = useState(false)
   const [showEsewaModal, setShowEsewaModal] = useState(false)
   const [showKhaltiModal, setShowKhaltiModal] = useState(false)
@@ -61,25 +61,26 @@ export default function CheckoutPage({ onNavigate }: CheckoutPageProps) {
   const [paymentErrors, setPaymentErrors] = useState<{ esewa?: string; khalti?: string }>({})
 
   const totals = getCartTotal()
-  const isEmpty = state?.cart?.length === 0
+  const isEmpty = cart.length === 0
 
   // Populate form data with user info when state is ready
   useEffect(() => {
-    if (state?.user) {
+    if (user) {
+      const addr = typeof user.address === 'object' ? user.address : undefined
       setFormData(prev => ({
         ...prev,
-        name: state.user?.name || '',
-        email: state.user?.email || '',
-        phone: state.user?.phone || '',
-        line1: state.user?.address?.line1 || '',
-        line2: state.user?.address?.line2 || '',
-        city: state.user?.address?.city || '',
-        district: state.user?.address?.district || '',
-        province: state.user?.address?.province || '',
-        postalCode: state.user?.address?.postalCode || '',
+        name: user.name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        line1: addr?.line1 || (typeof user.address === 'string' ? user.address : ''),
+        line2: addr?.line2 || '',
+        city: addr?.city || '',
+        district: addr?.district || '',
+        province: addr?.province || '',
+        postalCode: addr?.postalCode || '',
       }))
     }
-  }, [state?.user])
+  }, [user])
 
   useEffect(() => {
     if (isEmpty) {
@@ -751,7 +752,7 @@ export default function CheckoutPage({ onNavigate }: CheckoutPageProps) {
 
               {/* Items */}
               <div className="space-y-3 mb-6 max-h-64 overflow-y-auto">
-                {state?.cart?.map((item) => (
+                {cart?.map((item) => (
                   <div key={item.book.id} className="flex gap-3">
                     <img
                       src={item.book.coverImage}

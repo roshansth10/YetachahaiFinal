@@ -150,3 +150,39 @@
 .shadow-warm-lg {
   box-shadow: 0 8px 40px rgba(44, 24, 16, 0.12), 0 4px 16px rgba(201, 151, 58, 0.08);
 }
+
+/* Mobile input zoom prevention (iOS requires 16px font-size) */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Scrollbar hide utility for carousels */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-marquee {
+    animation: none !important;
+  }
+}
+
+/* Prevent horizontal overflow on any device width */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+

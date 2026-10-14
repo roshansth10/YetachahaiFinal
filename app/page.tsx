@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { StoreProvider } from "@/lib/store"
 import { Toaster } from "sonner"
 
@@ -24,10 +24,95 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState("home")
   const [pageData, setPageData] = useState<unknown>(null)
 
+  // Synchronize route from window.location
+  const syncFromLocation = useCallback(() => {
+    if (typeof window === "undefined") return
+    const pathname = window.location.pathname
+    const search = window.location.search
+
+    if (pathname.startsWith("/book/")) {
+      const slug = pathname.replace("/book/", "")
+      setCurrentPage("book")
+      setPageData(slug)
+    } else if (pathname === "/browse" || pathname === "/catalog") {
+      setCurrentPage("catalog")
+      const params = new URLSearchParams(search)
+      const genre = params.get("genre")
+      const q = params.get("q") || params.get("search")
+      if (genre) {
+        setPageData(genre)
+      } else if (q) {
+        setPageData({ search: q })
+      } else {
+        setPageData(null)
+      }
+    } else if (pathname === "/cart") {
+      setCurrentPage("cart")
+      setPageData(null)
+    } else if (pathname === "/wishlist") {
+      setCurrentPage("wishlist")
+      setPageData(null)
+    } else if (pathname === "/checkout") {
+      setCurrentPage("checkout")
+      setPageData(null)
+    } else if (pathname === "/profile") {
+      setCurrentPage("profile")
+      setPageData(null)
+    } else if (pathname === "/auth") {
+      setCurrentPage("auth")
+      setPageData(null)
+    } else if (pathname === "/admin") {
+      setCurrentPage("admin")
+      setPageData(null)
+    } else {
+      setCurrentPage("home")
+      setPageData(null)
+    }
+  }, [])
+
+  // Listen to popstate for browser back/forward navigation
+  useEffect(() => {
+    syncFromLocation()
+    const handlePopState = () => {
+      syncFromLocation()
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [syncFromLocation])
+
   const navigate = (page: string, data?: unknown) => {
     setCurrentPage(page)
     setPageData(data || null)
-    window.scrollTo(0, 0)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+
+    if (typeof window !== "undefined") {
+      let url = "/"
+      if (page === "catalog") {
+        if (typeof data === "string" && data) {
+          url = `/browse?genre=${encodeURIComponent(data)}`
+        } else if (typeof data === "object" && data !== null && "search" in data) {
+          url = `/browse?q=${encodeURIComponent(String((data as { search: string }).search))}`
+        } else {
+          url = "/browse"
+        }
+      } else if (page === "book") {
+        url = `/book/${data}`
+      } else if (page === "cart") {
+        url = "/cart"
+      } else if (page === "wishlist") {
+        url = "/wishlist"
+      } else if (page === "checkout") {
+        url = "/checkout"
+      } else if (page === "profile") {
+        url = "/profile"
+      } else if (page === "auth") {
+        url = "/auth"
+      } else if (page === "admin") {
+        url = "/admin"
+      }
+
+      window.history.pushState({ page, data }, "", url)
+    }
   }
 
   const renderPage = () => {
@@ -48,7 +133,7 @@ export default function App() {
         content = <HomePage onNavigate={navigate} />
         break
       case "catalog":
-        content = <CatalogPage onNavigate={navigate} initialCategory={pageData as string | undefined} />
+        content = <CatalogPage onNavigate={navigate} initialCategory={pageData as any} />
         break
       case "book":
         content = <BookDetailPage bookId={pageData as string} onNavigate={navigate} />

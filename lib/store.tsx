@@ -135,7 +135,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'REMOVE_FROM_WISHLIST':
       return {
         ...state,
-        wishlist: state.wishlist.filter(item => item.book.id !== action.payload),
+        wishlist: state.wishlist.filter(item => item.book.id !== action.payload && item.book.slug !== action.payload),
       }
     case 'MOVE_TO_CART': {
       const item = state.wishlist.find(item => item.book.id === action.payload)
@@ -188,14 +188,16 @@ function reducer(state: AppState, action: Action): AppState {
 
 interface StoreContextType {
   // State access
+  state: AppState
   user: User | null
   cart: CartItem[]
-  wishlist: WishlistItem[]
+  wishlist: Book[]
   orders: Order[]
   shipping: ShippingInfo | null
   payment: PaymentState
   checkoutStep: number
   adminStats: AdminStats | null
+  dispatch: React.Dispatch<Action>
   // Auth
   login: (email: string, password: string) => boolean
   logout: () => void
@@ -215,6 +217,8 @@ interface StoreContextType {
   // Checkout
   setShipping: (info: ShippingInfo) => void
   setPaymentMethod: (method: 'esewa' | 'khalti' | 'cod') => void
+  setPaymentStatus: (status: PaymentState['status']) => void
+  setTransactionId: (id: string) => void
   processPayment: () => Promise<boolean>
   setCheckoutStep: (step: number) => void
   placeOrder: () => Order
@@ -344,8 +348,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'MOVE_TO_CART', payload: bookId })
   }
 
-  const isInWishlist = (bookId: string) => {
-    return state.wishlist.some(item => item.book.id === bookId)
+  const isInWishlist = (bookIdOrSlug: string) => {
+    return state.wishlist.some(item => item.book.id === bookIdOrSlug || item.book.slug === bookIdOrSlug)
   }
 
   const setShipping = (info: ShippingInfo) => {
@@ -449,6 +453,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     <StoreContext.Provider
       value={{
         // State access
+        state,
         user: state.user,
         cart: state.cart,
         wishlist: state.wishlist.map(w => w.book),
@@ -457,6 +462,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         payment: state.payment,
         checkoutStep: state.checkoutStep,
         adminStats,
+        dispatch,
         // Auth
         login,
         logout,
@@ -476,6 +482,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Checkout
         setShipping,
         setPaymentMethod,
+        setPaymentStatus: (status) => dispatch({ type: 'SET_PAYMENT_STATUS', payload: status }),
+        setTransactionId: (id) => dispatch({ type: 'SET_TRANSACTION_ID', payload: id }),
         processPayment,
         setCheckoutStep,
         placeOrder,

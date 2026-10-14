@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useStore } from "@/lib/store"
-import { formatPrice } from "@/lib/data"
+import { formatPrice, getBookById } from "@/lib/data"
 
 interface ProfilePageProps {
   onNavigate: (page: string, data?: unknown) => void
@@ -34,10 +34,19 @@ export default function ProfilePage({ onNavigate }: ProfilePageProps) {
   const { user, orders, wishlist, logout, updateProfile } = useStore()
   const [activeTab, setActiveTab] = useState<"profile" | "orders" | "settings">("profile")
   const [isEditing, setIsEditing] = useState(false)
+  const formatAddress = (addr?: unknown): string => {
+    if (!addr) return ""
+    if (typeof addr === "string") return addr
+    if (typeof addr === "object" && addr !== null) {
+      const a = addr as Record<string, string | undefined>
+      return [a.line1, a.line2, a.city, a.district, a.province].filter(Boolean).join(", ")
+    }
+    return ""
+  }
   const [editData, setEditData] = useState({
     name: user?.name || "",
     phone: user?.phone || "",
-    address: user?.address || "",
+    address: formatAddress(user?.address),
   })
 
   if (!user) {
@@ -278,7 +287,7 @@ export default function ProfilePage({ onNavigate }: ProfilePageProps) {
                       />
                     ) : (
                       <p className="text-foreground font-medium p-3 bg-muted/50 rounded-lg">
-                        {user.address || "Not provided"}
+                        {formatAddress(user.address) || "Not provided"}
                       </p>
                     )}
                   </div>
@@ -350,21 +359,27 @@ export default function ProfilePage({ onNavigate }: ProfilePageProps) {
 
                       <div className="border-t border-border pt-4">
                         <div className="space-y-3">
-                          {order.items.map((item) => (
-                            <div key={item.bookId} className="flex items-center gap-4">
-                              <div
-                                className="w-12 h-16 rounded-lg bg-cover bg-center flex-shrink-0"
-                                style={{ backgroundImage: `url(${item.coverImage})` }}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-foreground truncate">{item.title}</p>
-                                <p className="text-sm text-muted-foreground">Qty: {item.quantity}</p>
+                          {order.items.map((item) => {
+                            const book = getBookById(item.bookId)
+                            return (
+                              <div key={item.bookId} className="flex items-center gap-4">
+                                <div className="w-12 h-16 rounded-lg bg-[#f6f1e8] dark:bg-muted/40 p-1 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                  <img
+                                    src={book?.coverImage || '/books/the-midnight-library.jpg'}
+                                    alt={book?.title || 'Book'}
+                                    className="w-full h-full object-contain"
+                                  />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-foreground truncate">{book?.title || 'Book'}</p>
+                                  <p className="text-sm text-muted-foreground">Qty: {item.quantity}</p>
+                                </div>
+                                <p className="font-medium text-foreground">
+                                  {formatPrice(item.price * item.quantity)}
+                                </p>
                               </div>
-                              <p className="font-medium text-foreground">
-                                {formatPrice(item.price * item.quantity)}
-                              </p>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
 
                         <div className="flex justify-between items-center mt-4 pt-4 border-t border-border">

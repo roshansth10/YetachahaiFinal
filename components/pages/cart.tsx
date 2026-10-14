@@ -91,11 +91,11 @@ export default function CartPage({ onNavigate }: CartPageProps) {
           <div className="bg-card rounded-2xl shadow-lg overflow-hidden">
             <AnimatePresence>
               {cart.map((item) => {
-                const book = books.find(b => b.id === item.bookId)
+                const book = item.book
                 if (!book) return null
                 return (
                   <motion.div
-                    key={item.bookId}
+                    key={book.id}
                     layout
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -103,18 +103,18 @@ export default function CartPage({ onNavigate }: CartPageProps) {
                     className="flex gap-4 p-6 border-b border-border last:border-b-0"
                   >
                     <button 
-                      onClick={() => onNavigate('book', book.id)}
-                      className="shrink-0"
+                      onClick={() => onNavigate('book', book.slug || book.id)}
+                      className="shrink-0 w-20 h-28 sm:w-24 sm:h-36 bg-[#f6f1e8] dark:bg-muted/40 rounded-lg p-1.5 flex items-center justify-center overflow-hidden"
                     >
                       <img
                         src={book.coverImage}
-                        alt={book.title}
-                        className="w-24 h-36 object-cover rounded-lg"
+                        alt={`Cover of ${book.title} by ${book.author}`}
+                        className="w-full h-full object-contain drop-shadow-sm"
                       />
                     </button>
                     <div className="flex-1 min-w-0">
                       <button 
-                        onClick={() => onNavigate('book', book.id)}
+                        onClick={() => onNavigate('book', book.slug || book.id)}
                         className="text-left"
                       >
                         <h3 className="font-semibold text-foreground hover:text-primary transition-colors line-clamp-1">
@@ -128,14 +128,14 @@ export default function CartPage({ onNavigate }: CartPageProps) {
                         {/* Quantity */}
                         <div className="flex items-center border border-border rounded-lg">
                           <button
-                            onClick={() => updateQuantity(item.bookId, item.quantity - 1)}
+                            onClick={() => updateQuantity(book.id, item.quantity - 1)}
                             className="p-2 hover:bg-muted transition-colors"
                           >
                             <Minus className="w-4 h-4" />
                           </button>
                           <span className="w-10 text-center font-medium">{item.quantity}</span>
                           <button
-                            onClick={() => updateQuantity(item.bookId, item.quantity + 1)}
+                            onClick={() => updateQuantity(book.id, item.quantity + 1)}
                             className="p-2 hover:bg-muted transition-colors"
                           >
                             <Plus className="w-4 h-4" />
@@ -145,7 +145,7 @@ export default function CartPage({ onNavigate }: CartPageProps) {
                         {/* Remove */}
                         <button
                           onClick={() => {
-                            removeFromCart(item.bookId)
+                            removeFromCart(book.id)
                             toast.success('Item removed from cart')
                           }}
                           className="p-2 text-muted-foreground hover:text-destructive transition-colors"
