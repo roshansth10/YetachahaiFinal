@@ -1,21 +1,34 @@
 "use client"
 
-import { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { BookOpen, Mail, Lock, User, Phone, MapPin, Eye, EyeOff, ArrowLeft, CheckCircle2 } from "lucide-react"
+import { BookOpen, Mail, Lock, User, Phone, MapPin, Eye, EyeOff, ArrowLeft, CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useStore } from "@/lib/store"
+import { toast } from "sonner"
 
 interface AuthPageProps {
-  onNavigate: (page: string) => void
+  onNavigate: (page: string, data?: unknown) => void
+  initialMode?: "login" | "register" | "forgot"
+  redirectTo?: string
 }
 
-export default function AuthPage({ onNavigate }: AuthPageProps) {
-  const { login, register } = useStore()
-  const [mode, setMode] = useState<"login" | "register" | "forgot">("login")
+export function validateRedirect(target?: string | null): string {
+  if (!target) return "/"
+  // Security: only allow internal relative paths. Strictly deny external URLs or protocol-relative URLs
+  if (!target.startsWith("/") || target.startsWith("//") || target.startsWith("/\\") || target.includes("://")) {
+    return "/"
+  }
+  return target
+}
+
+export default function AuthPage({ onNavigate, initialMode = "login", redirectTo }: AuthPageProps) {
+  const { login, register, user } = useStore()
+  const [mode, setMode] = useState<"login" | "register" | "forgot">(initialMode)
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
@@ -30,9 +43,55 @@ export default function AuthPage({ onNavigate }: AuthPageProps) {
     address: "",
   })
 
+  // Synchronize initialMode if it changes
+  useEffect(() => {
+    setMode(initialMode)
+  }, [initialMode])
+
+  // If already logged in, redirect
+  useEffect(() => {
+    if (user) {
+      const validTarget = validateRedirect(redirectTo)
+      if (validTarget.startsWith("/book/")) {
+        onNavigate("book", validTarget.replace("/book/", ""))
+      } else if (validTarget === "/cart") {
+        onNavigate("cart")
+      } else if (validTarget === "/wishlist") {
+        onNavigate("wishlist")
+      } else if (validTarget === "/checkout") {
+        onNavigate("checkout")
+      } else if (validTarget === "/profile") {
+        onNavigate("profile")
+      } else if (validTarget === "/browse" || validTarget === "/catalog") {
+        onNavigate("catalog")
+      } else {
+        onNavigate("home")
+      }
+    }
+  }, [user, redirectTo, onNavigate])
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
     setError("")
+  }
+
+  const handlePostAuthRedirect = () => {
+    const validTarget = validateRedirect(redirectTo)
+    if (validTarget.startsWith("/book/")) {
+      onNavigate("book", validTarget.replace("/book/", ""))
+    } else if (validTarget === "/cart") {
+      onNavigate("cart")
+    } else if (validTarget === "/wishlist") {
+      onNavigate("wishlist")
+    } else if (validTarget === "/checkout") {
+      onNavigate("checkout")
+    } else if (validTarget === "/profile") {
+      onNavigate("profile")
+    } else if (validTarget === "/browse" || validTarget === "/catalog") {
+      onNavigate("catalog")
+    } else {
+      onNavigate("home")
+    }
   }
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -40,16 +99,27 @@ export default function AuthPage({ onNavigate }: AuthPageProps) {
     setIsLoading(true)
     setError("")
 
-    // Simulate API call
-    await new Promise((r) => setTimeout(r, 1000))
-
-    const success = login(formData.email, formData.password)
-    if (success) {
-      onNavigate("home")
-    } else {
-      setError("Invalid email or password. Try: customer@yetaxahai.com / password123")
+    if (!formData.email.trim() || !formData.password) {
+      setError("Please enter both email and password.")
+      setIsLoading(false)
+      return
     }
-    setIsLoading(false)
+
+    try {
+      const isSuccess = await login(formData.email.trim(), formData.password)
+      if (isSuccess) {
+        toast.success("Welcome back!", {
+          description: "You have signed in successfully.",
+        })
+        handlePostAuthRedirect()
+      } else {
+        setError("Invalid email or password. Please verify your credentials or try the demo accounts below.")
+      }
+    } catch {
+      setError("An unexpected network error occurred. Please try again.")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -57,35 +127,53 @@ export default function AuthPage({ onNavigate }: AuthPageProps) {
     setIsLoading(true)
     setError("")
 
-    if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match")
+    if (!formData.name.trim()) {
+      setError("Please enter your full name.")
+      setIsLoading(false)
+      return
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(formData.email.trim())) {
+      setError("Please enter a valid email address.")
       setIsLoading(false)
       return
     }
 
     if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters")
+      setError("Password must be at least 6 characters long.")
       setIsLoading(false)
       return
     }
 
-    // Simulate API call
-    await new Promise((r) => setTimeout(r, 1000))
-
-    const success = register({
-      email: formData.email,
-      password: formData.password,
-      name: formData.name,
-      phone: formData.phone,
-      address: formData.address,
-    })
-
-    if (success) {
-      onNavigate("home")
-    } else {
-      setError("Email already exists")
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match. Please re-enter your password.")
+      setIsLoading(false)
+      return
     }
-    setIsLoading(false)
+
+    try {
+      const isSuccess = await register({
+        email: formData.email.trim(),
+        password: formData.password,
+        name: formData.name.trim(),
+        phone: formData.phone.trim(),
+        address: formData.address.trim(),
+      })
+
+      if (isSuccess) {
+        toast.success("Account created successfully!", {
+          description: "Welcome to Yetaxahai bookstore.",
+        })
+        handlePostAuthRedirect()
+      } else {
+        setError("An account with this email already exists. Try signing in instead.")
+      }
+    } catch {
+      setError("An unexpected network error occurred. Please try again.")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleForgotPassword = async (e: React.FormEvent) => {
@@ -93,254 +181,306 @@ export default function AuthPage({ onNavigate }: AuthPageProps) {
     setIsLoading(true)
     setError("")
 
-    // Simulate API call
-    await new Promise((r) => setTimeout(r, 1000))
+    if (!formData.email.trim()) {
+      setError("Please enter your email address.")
+      setIsLoading(false)
+      return
+    }
 
-    setSuccess("Password reset link sent to your email!")
+    await new Promise((r) => setTimeout(r, 600))
+    setSuccess(`A password reset link has been dispatched to ${formData.email.trim()}.`)
     setIsLoading(false)
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Left Panel - Decorative */}
-      <div className="hidden lg:flex lg:w-1/2 bg-primary relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" />
-        <div className="relative z-10 flex flex-col justify-center px-16">
+    <div className="min-h-screen bg-[#faf6ee] dark:bg-background flex">
+      {/* Left Panel - Brand Showcase */}
+      <div className="hidden lg:flex lg:w-1/2 bg-primary relative overflow-hidden text-primary-foreground">
+        <div className="absolute inset-0 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px] opacity-10" />
+        <div className="relative z-10 flex flex-col justify-center px-16 max-w-xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.5 }}
           >
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center">
-                <BookOpen className="w-7 h-7 text-primary" />
+            <button
+              onClick={() => onNavigate("home")}
+              className="flex items-center gap-3 mb-8 group text-left"
+              aria-label="Back to Yetaxahai Home"
+            >
+              <div className="w-12 h-12 bg-accent/20 rounded-2xl flex items-center justify-center border border-white/20">
+                <BookOpen className="w-6 h-6 text-accent" />
               </div>
-              <span className="text-3xl font-serif font-bold text-primary-foreground">Yetaxahai</span>
-            </div>
+              <div>
+                <span className="text-3xl font-serif font-bold italic tracking-tight text-white group-hover:text-accent transition-colors">
+                  Yetaxahai
+                </span>
+                <p className="text-xs text-white/70 tracking-widest uppercase">Kathmandu, Nepal</p>
+              </div>
+            </button>
 
-            <h1 className="text-5xl font-serif font-bold text-primary-foreground mb-6 leading-tight">
-              Your Gateway to
+            <h1 className="text-4xl xl:text-5xl font-serif font-bold text-white mb-6 leading-tight">
+              Curated Stories for
               <br />
-              <span className="text-accent">Infinite Stories</span>
+              <span className="text-accent italic">Every Nepali Reader</span>
             </h1>
 
-            <p className="text-primary-foreground/80 text-lg max-w-md mb-12">
-              Join thousands of readers discovering their next favorite book. From timeless classics to contemporary bestsellers.
+            <p className="text-white/80 text-base mb-10 leading-relaxed">
+              Sign in to manage your book orders across Nepal, track deliveries, save to your personal wishlist, and enjoy express Kathmandu delivery.
             </p>
 
-            {/* Features */}
             <div className="space-y-4">
               {[
-                "Access to 10,000+ curated titles",
-                "Personalized recommendations",
-                "Exclusive member discounts",
-                "Fast delivery across Nepal",
+                "100% Genuine, verified editions with real covers",
+                "Cash on Delivery, eSewa & Khalti supported",
+                "Fast door-to-door delivery across all 7 provinces",
+                "Curated fiction, philosophy, sci-fi & non-fiction",
               ].map((feature, i) => (
                 <motion.div
                   key={feature}
-                  initial={{ opacity: 0, x: -20 }}
+                  initial={{ opacity: 0, x: -15 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.3 + i * 0.1 }}
-                  className="flex items-center gap-3"
+                  transition={{ delay: 0.2 + i * 0.1 }}
+                  className="flex items-center gap-3 text-sm text-white/90"
                 >
-                  <CheckCircle2 className="w-5 h-5 text-accent" />
-                  <span className="text-primary-foreground/90">{feature}</span>
+                  <CheckCircle2 className="w-4 h-4 text-accent shrink-0" />
+                  <span>{feature}</span>
                 </motion.div>
               ))}
             </div>
           </motion.div>
         </div>
 
-        {/* Decorative Elements */}
-        <div className="absolute -bottom-20 -right-20 w-80 h-80 bg-accent/20 rounded-full blur-3xl" />
-        <div className="absolute top-20 -right-10 w-40 h-40 bg-accent/10 rounded-full blur-2xl" />
+        <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-accent/20 rounded-full blur-3xl pointer-events-none" />
       </div>
 
-      {/* Right Panel - Forms */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-md">
-          {/* Mobile Logo */}
+      {/* Right Panel - Login & Register Forms */}
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
+        <div className="w-full max-w-md bg-card border border-border/80 p-8 sm:p-10 rounded-3xl shadow-xl">
+          {/* Mobile Brand Header */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-              <BookOpen className="w-6 h-6 text-primary-foreground" />
-            </div>
-            <span className="text-2xl font-serif font-bold text-foreground">Yetaxahai</span>
+            <button
+              onClick={() => onNavigate("home")}
+              className="flex items-center gap-2"
+              aria-label="Back to Yetaxahai Home"
+            >
+              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-primary-foreground">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <span className="text-2xl font-serif font-bold italic text-foreground">Yetaxahai</span>
+            </button>
           </div>
 
           <AnimatePresence mode="wait">
+            {/* LOGIN FORM */}
             {mode === "login" && (
               <motion.div
                 key="login"
-                initial={{ opacity: 0, x: 20 }}
+                initial={{ opacity: 0, x: 15 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3 }}
+                exit={{ opacity: 0, x: -15 }}
+                transition={{ duration: 0.2 }}
               >
-                <h2 className="text-3xl font-serif font-bold text-foreground mb-2">Welcome Back</h2>
-                <p className="text-muted-foreground mb-8">Sign in to continue your reading journey</p>
+                <div className="mb-6">
+                  <h2 className="text-3xl font-serif font-bold text-foreground tracking-tight">Sign In</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Enter your email and password to access your account
+                  </p>
+                  {redirectTo && redirectTo !== "/" && (
+                    <div className="mt-2 inline-flex items-center px-2.5 py-1 bg-primary/10 text-primary rounded-md text-xs">
+                      Redirecting to <span className="font-mono font-semibold ml-1">{validateRedirect(redirectTo)}</span> after sign in
+                    </div>
+                  )}
+                </div>
 
-                <form onSubmit={handleLogin} className="space-y-5">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email Address</Label>
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="login-email" className="text-xs font-semibold">Email Address</Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
-                        id="email"
+                        id="login-email"
                         name="email"
                         type="email"
                         placeholder="you@example.com"
                         value={formData.email}
                         onChange={handleChange}
-                        className="pl-10 h-12"
+                        className="pl-10 h-12 rounded-xl text-base"
+                        autoComplete="email"
                         required
                       />
                     </div>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <Label htmlFor="password">Password</Label>
+                      <Label htmlFor="login-password" className="text-xs font-semibold">Password</Label>
                       <button
                         type="button"
-                        onClick={() => setMode("forgot")}
-                        className="text-sm text-primary hover:underline"
+                        onClick={() => {
+                          setMode("forgot")
+                          setError("")
+                        }}
+                        className="text-xs text-primary hover:underline font-medium"
                       >
                         Forgot password?
                       </button>
                     </div>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
-                        id="password"
+                        id="login-password"
                         name="password"
                         type={showPassword ? "text" : "password"}
                         placeholder="Enter your password"
                         value={formData.password}
                         onChange={handleChange}
-                        className="pl-10 pr-10 h-12"
+                        className="pl-10 pr-11 h-12 rounded-xl text-base"
+                        autoComplete="current-password"
                         required
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 rounded-md min-h-[36px] min-w-[36px] flex items-center justify-center"
+                        aria-label={showPassword ? "Hide password" : "Show password"}
                       >
-                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>
 
                   {error && (
-                    <motion.p
-                      initial={{ opacity: 0, y: -10 }}
+                    <motion.div
+                      initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="text-destructive text-sm bg-destructive/10 p-3 rounded-lg"
+                      className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/20 text-destructive text-xs rounded-xl"
                     >
-                      {error}
-                    </motion.p>
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </motion.div>
                   )}
 
-                  <Button type="submit" className="w-full h-12 text-base" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="w-full h-12 text-sm font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs"
+                    disabled={isLoading}
+                  >
                     {isLoading ? (
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full"
-                      />
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Signing in...
+                      </>
                     ) : (
                       "Sign In"
                     )}
                   </Button>
 
+                  {/* Demo Account Quick-Fill */}
                   <div className="relative my-6">
                     <div className="absolute inset-0 flex items-center">
                       <div className="w-full border-t border-border" />
                     </div>
-                    <div className="relative flex justify-center text-sm">
-                      <span className="bg-background px-4 text-muted-foreground">Demo Accounts</span>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="bg-card px-3 text-muted-foreground font-medium uppercase tracking-wider">
+                        Demo Accounts
+                      </span>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2.5">
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-auto py-3 flex-col"
+                      className="h-auto py-2.5 flex-col items-start text-left rounded-xl border-border/80 hover:bg-muted/50"
                       onClick={() => {
                         setFormData({ ...formData, email: "customer@yetaxahai.com", password: "password123" })
+                        setError("")
                       }}
                     >
-                      <span className="font-medium">Customer</span>
-                      <span className="text-xs text-muted-foreground">customer@yetaxahai.com</span>
+                      <span className="font-semibold text-xs text-foreground">Customer Demo</span>
+                      <span className="text-[11px] text-muted-foreground truncate w-full">customer@yetaxahai.com</span>
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-auto py-3 flex-col"
-onClick={() => {
+                      className="h-auto py-2.5 flex-col items-start text-left rounded-xl border-border/80 hover:bg-muted/50"
+                      onClick={() => {
                         setFormData({ ...formData, email: "admin@yetaxahai.com", password: "admin123" })
+                        setError("")
                       }}
                     >
-                      <span className="font-medium">Admin</span>
-                      <span className="text-xs text-muted-foreground">admin@yetaxahai.com</span>
+                      <span className="font-semibold text-xs text-foreground">Admin Demo</span>
+                      <span className="text-[11px] text-muted-foreground truncate w-full">admin@yetaxahai.com</span>
                     </Button>
                   </div>
 
-                  <p className="text-center text-muted-foreground">
-                    Don&apos;t have an account?{" "}
+                  <p className="text-center text-xs text-muted-foreground pt-4">
+                    Don&apos;t have an account yet?{" "}
                     <button
                       type="button"
-                      onClick={() => setMode("register")}
-                      className="text-primary font-medium hover:underline"
+                      onClick={() => {
+                        setMode("register")
+                        setError("")
+                      }}
+                      className="text-primary font-semibold hover:underline min-h-[44px] py-2 px-1"
                     >
-                      Sign up
+                      Create an account
                     </button>
                   </p>
                 </form>
               </motion.div>
             )}
 
+            {/* REGISTER FORM */}
             {mode === "register" && (
               <motion.div
                 key="register"
-                initial={{ opacity: 0, x: 20 }}
+                initial={{ opacity: 0, x: 15 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3 }}
+                exit={{ opacity: 0, x: -15 }}
+                transition={{ duration: 0.2 }}
               >
-                <button
-                  onClick={() => setMode("login")}
-                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to login
-                </button>
+                <div className="mb-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("login")
+                      setError("")
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-3 font-medium min-h-[36px]"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back to Sign In
+                  </button>
+                  <h2 className="text-3xl font-serif font-bold text-foreground tracking-tight">Create Account</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Join Yetaxahai to track orders and save your favorite books
+                  </p>
+                </div>
 
-                <h2 className="text-3xl font-serif font-bold text-foreground mb-2">Create Account</h2>
-                <p className="text-muted-foreground mb-8">Join Yetaxahai and start your reading journey</p>
-
-                <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Full Name</Label>
+                <form onSubmit={handleRegister} className="space-y-3.5">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reg-name" className="text-xs font-semibold">Full Name</Label>
                     <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                      <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
-                        id="name"
+                        id="reg-name"
                         name="name"
                         type="text"
-                        placeholder="Your full name"
+                        placeholder="Ram Sharma"
                         value={formData.name}
                         onChange={handleChange}
-                        className="pl-10 h-12"
+                        className="pl-10 h-11 rounded-xl text-base"
                         required
                       />
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="reg-email">Email Address</Label>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reg-email" className="text-xs font-semibold">Email Address</Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
                         id="reg-email"
                         name="email"
@@ -348,51 +488,51 @@ onClick={() => {
                         placeholder="you@example.com"
                         value={formData.email}
                         onChange={handleChange}
-                        className="pl-10 h-12"
+                        className="pl-10 h-11 rounded-xl text-base"
                         required
                       />
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number</Label>
-                    <div className="relative">
-                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                      <Input
-                        id="phone"
-                        name="phone"
-                        type="tel"
-                        placeholder="98XXXXXXXX"
-                        value={formData.phone}
-                        onChange={handleChange}
-                        className="pl-10 h-12"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="address">Delivery Address</Label>
-                    <div className="relative">
-                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                      <Input
-                        id="address"
-                        name="address"
-                        type="text"
-                        placeholder="Your address in Nepal"
-                        value={formData.address}
-                        onChange={handleChange}
-                        className="pl-10 h-12"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="reg-password">Password</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="reg-phone" className="text-xs font-semibold">Phone (Optional)</Label>
                       <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                        <Input
+                          id="reg-phone"
+                          name="phone"
+                          type="tel"
+                          placeholder="98XXXXXXXX"
+                          value={formData.phone}
+                          onChange={handleChange}
+                          className="pl-8 h-11 rounded-xl text-base"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="reg-address" className="text-xs font-semibold">City (Optional)</Label>
+                      <div className="relative">
+                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                        <Input
+                          id="reg-address"
+                          name="address"
+                          type="text"
+                          placeholder="Kathmandu"
+                          value={formData.address}
+                          onChange={handleChange}
+                          className="pl-8 h-11 rounded-xl text-base"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="reg-password" className="text-xs font-semibold">Password</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                         <Input
                           id="reg-password"
                           name="password"
@@ -400,91 +540,121 @@ onClick={() => {
                           placeholder="Min 6 chars"
                           value={formData.password}
                           onChange={handleChange}
-                          className="pl-10 h-12"
+                          className="pl-8 pr-8 h-11 rounded-xl text-base"
                           required
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                          aria-label={showPassword ? "Hide password" : "Show password"}
+                        >
+                          {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="confirmPassword">Confirm</Label>
-                      <Input
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        type={showPassword ? "text" : "password"}
-                        placeholder="Confirm password"
-                        value={formData.confirmPassword}
-                        onChange={handleChange}
-                        className="h-12"
-                        required
-                      />
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="reg-confirm" className="text-xs font-semibold">Confirm</Label>
+                      <div className="relative">
+                        <Input
+                          id="reg-confirm"
+                          name="confirmPassword"
+                          type={showConfirmPassword ? "text" : "password"}
+                          placeholder="Confirm"
+                          value={formData.confirmPassword}
+                          onChange={handleChange}
+                          className="pr-8 h-11 rounded-xl text-base"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                          aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  <label className="flex items-start gap-2 text-sm">
-                    <input type="checkbox" className="mt-1 rounded border-border" required />
-                    <span className="text-muted-foreground">
-                      I agree to the{" "}
-                      <button type="button" className="text-primary hover:underline">
-                        Terms of Service
-                      </button>{" "}
-                      and{" "}
-                      <button type="button" className="text-primary hover:underline">
-                        Privacy Policy
-                      </button>
-                    </span>
-                  </label>
-
                   {error && (
-                    <motion.p
-                      initial={{ opacity: 0, y: -10 }}
+                    <motion.div
+                      initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="text-destructive text-sm bg-destructive/10 p-3 rounded-lg"
+                      className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/20 text-destructive text-xs rounded-xl"
                     >
-                      {error}
-                    </motion.p>
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </motion.div>
                   )}
 
-                  <Button type="submit" className="w-full h-12 text-base" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="w-full h-12 text-sm font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs"
+                    disabled={isLoading}
+                  >
                     {isLoading ? (
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full"
-                      />
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Creating Account...
+                      </>
                     ) : (
                       "Create Account"
                     )}
                   </Button>
+
+                  <p className="text-center text-xs text-muted-foreground pt-3">
+                    Already have an account?{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode("login")
+                        setError("")
+                      }}
+                      className="text-primary font-semibold hover:underline min-h-[44px] py-2 px-1"
+                    >
+                      Sign In
+                    </button>
+                  </p>
                 </form>
               </motion.div>
             )}
 
+            {/* FORGOT PASSWORD FORM */}
             {mode === "forgot" && (
               <motion.div
                 key="forgot"
-                initial={{ opacity: 0, x: 20 }}
+                initial={{ opacity: 0, x: 15 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3 }}
+                exit={{ opacity: 0, x: -15 }}
+                transition={{ duration: 0.2 }}
               >
-                <button
-                  onClick={() => setMode("login")}
-                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to login
-                </button>
+                <div className="mb-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("login")
+                      setError("")
+                      setSuccess("")
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-3 font-medium min-h-[36px]"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back to Sign In
+                  </button>
+                  <h2 className="text-3xl font-serif font-bold text-foreground tracking-tight">Reset Password</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Enter your email to receive a password recovery link
+                  </p>
+                </div>
 
-                <h2 className="text-3xl font-serif font-bold text-foreground mb-2">Reset Password</h2>
-                <p className="text-muted-foreground mb-8">
-                  Enter your email and we&apos;ll send you a link to reset your password
-                </p>
-
-                <form onSubmit={handleForgotPassword} className="space-y-5">
-                  <div className="space-y-2">
-                    <Label htmlFor="forgot-email">Email Address</Label>
+                <form onSubmit={handleForgotPassword} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="forgot-email" className="text-xs font-semibold">Email Address</Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
                         id="forgot-email"
                         name="email"
@@ -492,33 +662,32 @@ onClick={() => {
                         placeholder="you@example.com"
                         value={formData.email}
                         onChange={handleChange}
-                        className="pl-10 h-12"
+                        className="pl-10 h-12 rounded-xl text-base"
                         required
                       />
                     </div>
                   </div>
 
-                  {success && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex items-center gap-2 text-green-600 bg-green-50 p-3 rounded-lg"
-                    >
-                      <CheckCircle2 className="w-5 h-5" />
-                      {success}
-                    </motion.div>
+                  {error && (
+                    <div className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/20 text-destructive text-xs rounded-xl">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
                   )}
 
-                  <Button type="submit" className="w-full h-12 text-base" disabled={isLoading}>
-                    {isLoading ? (
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full"
-                      />
-                    ) : (
-                      "Send Reset Link"
-                    )}
+                  {success && (
+                    <div className="flex items-start gap-2 p-3 bg-green-500/10 border border-green-500/20 text-green-700 dark:text-green-300 text-xs rounded-xl">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{success}</span>
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    className="w-full h-12 text-sm font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "Sending Link..." : "Send Reset Link"}
                   </Button>
                 </form>
               </motion.div>

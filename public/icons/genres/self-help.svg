@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Soil base mound -->
+  <path d="M4 21C6 19.5 9 19 12 19C15 19 18 19.5 20 21" />
+  <!-- Stem -->
+  <path d="M12 19V9" />
+  <!-- Left sprouting leaf -->
+  <path d="M12 14C8 14 6 10 7 7C10 7 12 10 12 14Z" />
+  <!-- Right sprouting leaf -->
+  <path d="M12 11C15 11 18 8 17 5C14 5 12 8 12 11Z" />
+</svg>

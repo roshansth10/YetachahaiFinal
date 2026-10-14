@@ -20,7 +20,14 @@ export default function CartRoute() {
     else if (page === "wishlist") router.push("/wishlist")
     else if (page === "checkout") router.push("/checkout")
     else if (page === "profile") router.push("/profile")
-    else if (page === "auth") router.push("/auth")
+    else if (page === "login" || page === "auth") {
+      const redirect = (data as { redirect?: string })?.redirect
+      router.push(redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : "/login")
+    }
+    else if (page === "signup") {
+      const redirect = (data as { redirect?: string })?.redirect
+      router.push(redirect ? `/signup?redirect=${encodeURIComponent(redirect)}` : "/signup")
+    }
     else router.push("/")
   }
 

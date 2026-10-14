@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStore } from '@/lib/store'
 import { books, reviews as allReviews, formatPrice, getBookBySlug, getBookById } from '@/lib/data'
 import { toast } from 'sonner'
+import UserAvatar from '@/components/ui/user-avatar'
 
 interface BookDetailPageProps {
   bookId: string
@@ -19,7 +20,7 @@ interface BookDetailPageProps {
 }
 
 export default function BookDetailPage({ bookId, onNavigate }: BookDetailPageProps) {
-  const { addToCart, addToWishlist, removeFromWishlist, isInWishlist } = useStore()
+  const { user, addToCart, addToWishlist, removeFromWishlist, isInWishlist } = useStore()
   const [quantity, setQuantity] = useState(1)
 
   // Find book by slug or by id
@@ -64,6 +65,15 @@ export default function BookDetailPage({ bookId, onNavigate }: BookDetailPagePro
   }
 
   const handleWishlistToggle = () => {
+    if (!user) {
+      toast.info('Please sign in to save books to your wishlist', {
+        action: {
+          label: 'Sign In',
+          onClick: () => onNavigate('login'),
+        },
+      })
+      return
+    }
     if (inWishlist) {
       removeFromWishlist(book.id)
       toast.success('Removed from wishlist')
@@ -75,6 +85,11 @@ export default function BookDetailPage({ bookId, onNavigate }: BookDetailPagePro
 
   const handleBuyNow = () => {
     addToCart(book, quantity)
+    if (!user) {
+      toast.info('Please sign in to place your order.')
+      onNavigate('login', { redirect: '/checkout' })
+      return
+    }
     onNavigate('checkout')
   }
 
@@ -429,8 +444,15 @@ export default function BookDetailPage({ bookId, onNavigate }: BookDetailPagePro
               {reviews.length > 0 ? (
                 reviews.map((rev) => (
                   <div key={rev.id} className="pb-4 border-b border-border/60 last:border-b-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold text-foreground text-sm">{rev.userName}</span>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <UserAvatar
+                          name={rev.userName}
+                          avatar={user && (rev.userId === user.id || rev.userName === user.name) ? user.avatar : undefined}
+                          size="xs"
+                        />
+                        <span className="font-semibold text-foreground text-sm">{rev.userName}</span>
+                      </div>
                       <div className="flex items-center gap-1">
                         {[...Array(5)].map((_, i) => (
                           <Star

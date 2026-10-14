@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useReducer, useEffect, useState, type ReactNode } from 'react'
 import { mockBooks as books, mockUsers as users, type Book, type User, type Order } from './data'
 
 // Admin Stats type
@@ -71,6 +71,8 @@ type Action =
   | { type: 'SET_PAYMENT_STATUS'; payload: PaymentState['status'] }
   | { type: 'SET_TRANSACTION_ID'; payload: string }
   | { type: 'SET_CHECKOUT_STEP'; payload: number }
+  | { type: 'SET_CART'; payload: CartItem[] }
+  | { type: 'SET_ORDERS'; payload: Order[] }
   | { type: 'PLACE_ORDER'; payload: Order }
   | { type: 'RESET_CHECKOUT' }
   | { type: 'HYDRATE'; payload: Partial<AppState> }
@@ -163,10 +165,14 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, payment: { ...state.payment, transactionId: action.payload } }
     case 'SET_CHECKOUT_STEP':
       return { ...state, checkoutStep: action.payload }
+    case 'SET_CART':
+      return { ...state, cart: action.payload }
+    case 'SET_ORDERS':
+      return { ...state, orders: action.payload }
     case 'PLACE_ORDER':
       return {
         ...state,
-        orders: [...state.orders, action.payload],
+        orders: [action.payload, ...state.orders.filter(o => o.id !== action.payload.id)],
         cart: [],
         shipping: null,
         payment: { method: null, status: 'idle' },
@@ -198,11 +204,14 @@ interface StoreContextType {
   checkoutStep: number
   adminStats: AdminStats | null
   dispatch: React.Dispatch<Action>
+  isAuthLoading: boolean
   // Auth
-  login: (email: string, password: string) => boolean
-  logout: () => void
-  register: (data: { email: string; password: string; name: string; phone?: string; address?: string }) => boolean
-  updateProfile: (data: { name?: string; phone?: string; address?: string }) => void
+  login: (email: string, password: string) => Promise<boolean>
+  logout: () => Promise<void>
+  register: (data: { email: string; password: string; name: string; phone?: string; address?: string }) => Promise<boolean>
+  updateProfile: (data: { name?: string; phone?: string; address?: unknown }) => Promise<boolean>
+  uploadAvatar: (file: Blob | File) => Promise<{ success: boolean; avatarUrl?: string; error?: string }>
+  removeAvatar: () => Promise<boolean>
   // Cart
   addToCart: (book: Book, quantity?: number) => void
   removeFromCart: (bookId: string) => void
@@ -221,20 +230,92 @@ interface StoreContextType {
   setTransactionId: (id: string) => void
   processPayment: () => Promise<boolean>
   setCheckoutStep: (step: number) => void
-  placeOrder: () => Order
+  placeOrder: (transactionIdOverride?: string) => Promise<{ success: boolean; order?: Order; error?: string; status?: number }>
 }
 
 const StoreContext = createContext<StoreContextType | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState)
+  const [isAuthLoading, setIsAuthLoading] = useState(true)
 
-  // Load from localStorage on mount
+  // Helper: Merge guest cart with user's saved account cart
+  const mergeGuestCartOnLogin = (guestCart: CartItem[], loggedInUser: User) => {
+    const accountCartKey = `yetaxahai_account_cart_${loggedInUser.id}`
+    let accountCart: CartItem[] = []
+    try {
+      const raw = localStorage.getItem(accountCartKey)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        accountCart = parsed.map((item: { book: { id: string }; quantity: number }) => ({
+          book: books.find(b => b.id === item.book.id) || item.book,
+          quantity: item.quantity,
+        })).filter((item: CartItem) => item.book)
+      }
+    } catch {}
+
+    const map = new Map<string, CartItem>()
+    // Start with account cart items
+    for (const item of accountCart) {
+      map.set(item.book.id, { ...item })
+    }
+    // Add/merge guest items (sum quantities, no duplicates)
+    for (const guestItem of guestCart) {
+      const existing = map.get(guestItem.book.id)
+      if (existing) {
+        existing.quantity += guestItem.quantity
+      } else {
+        map.set(guestItem.book.id, { ...guestItem })
+      }
+    }
+
+    const merged = Array.from(map.values())
+    dispatch({ type: 'SET_CART', payload: merged })
+
+    try {
+      localStorage.setItem(
+        accountCartKey,
+        JSON.stringify(merged.map(i => ({ book: { id: i.book.id }, quantity: i.quantity })))
+      )
+      // Clear standalone guest cart
+      localStorage.removeItem('yetaxahai-guest-cart')
+    } catch {}
+  }
+
+  // 1. Check authenticated session from secure httpOnly cookie on mount
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.user) {
+          dispatch({ type: 'LOGIN', payload: data.user })
+          // Restore user's orders from server
+          fetch('/api/orders')
+            .then(r => r.json())
+            .then(orderData => {
+              if (orderData?.orders) {
+                dispatch({ type: 'SET_ORDERS', payload: orderData.orders })
+              }
+            })
+            .catch(() => {})
+        }
+      })
+      .catch(err => {
+        console.error('Failed to restore session:', err)
+      })
+      .finally(() => {
+        setIsAuthLoading(false)
+      })
+  }, [])
+
+  // 2. Load cart, wishlist, and orders from localStorage on mount (NEVER restore user from localStorage)
   useEffect(() => {
     const saved = localStorage.getItem('yetaxahai-store')
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
+        // Strictly remove any legacy user to prevent automatic login
+        delete parsed.user
         // Rehydrate book references
         if (parsed.cart) {
           parsed.cart = parsed.cart.map((item: { book: { id: string }; quantity: number }) => ({
@@ -255,53 +336,148 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Save to localStorage on state change
+  // 3. Save to localStorage on state change (ONLY cart, wishlist, orders - NEVER user)
   useEffect(() => {
     const toSave = {
-      user: state.user,
       cart: state.cart.map(item => ({ book: { id: item.book.id }, quantity: item.quantity })),
       wishlist: state.wishlist.map(item => ({ book: { id: item.book.id }, addedAt: item.addedAt })),
       orders: state.orders,
     }
     localStorage.setItem('yetaxahai-store', JSON.stringify(toSave))
-  }, [state.user, state.cart, state.wishlist, state.orders])
-
-  const login = (email: string, password: string): boolean => {
-    const user = users.find(u => u.email === email && u.password === password)
-    if (user) {
-      dispatch({ type: 'LOGIN', payload: user })
-      return true
-    }
-    return false
-  }
-
-  const logout = () => dispatch({ type: 'LOGOUT' })
-
-  const register = (data: { email: string; password: string; name: string; phone?: string; address?: string }): boolean => {
-    // Check if email already exists
-    const existingUser = users.find(u => u.email === data.email)
-    if (existingUser) return false
-
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      name: data.name,
-      email: data.email,
-      password: data.password,
-      role: 'customer',
-      phone: data.phone,
-      memberSince: new Date().toISOString(),
-      booksOrdered: 0,
-      totalSpent: 0,
-      createdAt: new Date().toISOString(),
-    }
-    dispatch({ type: 'LOGIN', payload: newUser })
-    return true
-  }
-
-  const updateProfile = (data: { name?: string; phone?: string; address?: string }) => {
     if (state.user) {
-      const updatedUser = { ...state.user, ...data }
-      dispatch({ type: 'LOGIN', payload: updatedUser })
+      try {
+        localStorage.setItem(
+          `yetaxahai_account_cart_${state.user.id}`,
+          JSON.stringify(toSave.cart)
+        )
+      } catch {}
+    }
+  }, [state.cart, state.wishlist, state.orders, state.user])
+
+  const login = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = await res.json()
+      if (res.ok && data.user) {
+        dispatch({ type: 'LOGIN', payload: data.user })
+        mergeGuestCartOnLogin(state.cart, data.user)
+        fetch('/api/orders')
+          .then(r => r.json())
+          .then(orderData => {
+            if (orderData?.orders) {
+              dispatch({ type: 'SET_ORDERS', payload: orderData.orders })
+            }
+          })
+          .catch(() => {})
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
+  const logout = async (): Promise<void> => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // ignore
+    }
+    if (state.user) {
+      try {
+        localStorage.setItem(
+          `yetaxahai_account_cart_${state.user.id}`,
+          JSON.stringify(state.cart.map(i => ({ book: { id: i.book.id }, quantity: i.quantity })))
+        )
+      } catch {}
+    }
+    dispatch({ type: 'LOGOUT' })
+    dispatch({ type: 'CLEAR_CART' })
+    dispatch({ type: 'SET_ORDERS', payload: [] })
+    try {
+      const saved = localStorage.getItem('yetaxahai-store')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        delete parsed.user
+        parsed.cart = []
+        localStorage.setItem('yetaxahai-store', JSON.stringify(parsed))
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const register = async (data: { email: string; password: string; name: string; phone?: string; address?: string }): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const result = await res.json()
+      if (res.ok && result.user) {
+        dispatch({ type: 'LOGIN', payload: result.user })
+        mergeGuestCartOnLogin(state.cart, result.user)
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
+  const updateProfile = async (data: { name?: string; phone?: string; address?: unknown }): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/auth/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const result = await res.json()
+      if (res.ok && result.user) {
+        dispatch({ type: 'LOGIN', payload: result.user })
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
+  const uploadAvatar = async (file: Blob | File): Promise<{ success: boolean; avatarUrl?: string; error?: string }> => {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/auth/avatar', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+      if (res.ok && data.user) {
+        dispatch({ type: 'LOGIN', payload: data.user })
+        return { success: true, avatarUrl: data.avatarUrl }
+      }
+      return { success: false, error: data.error || 'Failed to upload photo.' }
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error while uploading.' }
+    }
+  }
+
+  const removeAvatar = async (): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/auth/avatar', { method: 'DELETE' })
+      const data = await res.json()
+      if (res.ok && data.user) {
+        dispatch({ type: 'LOGIN', payload: data.user })
+        return true
+      }
+      return false
+    } catch {
+      return false
     }
   }
 
@@ -385,56 +561,59 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_CHECKOUT_STEP', payload: step })
   }
 
-  const placeOrder = (): Order => {
-    const totals = getCartTotal()
-    const now = new Date()
-    const orderId = `Yetaxahai-${now.getFullYear()}-${String(Math.floor(Math.random() * 99999)).padStart(5, '0')}`
-    
-    let transactionId: string | undefined
-    if (state.payment.method === 'esewa') {
-      transactionId = `TXN-ESW-${now.toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
-    } else if (state.payment.method === 'khalti') {
-      transactionId = `KHL-TXN-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${now.getFullYear()}`
+  const placeOrder = async (
+    transactionIdOverride?: string
+  ): Promise<{ success: boolean; order?: Order; error?: string; status?: number }> => {
+    if (!state.user) {
+      return { success: false, error: 'Unauthorized. Please sign in to place an order.', status: 401 }
     }
 
-    const deliveryDays = state.shipping?.method === 'express' ? 3 : state.shipping?.method === 'sameday' ? 0 : 7
-    const estimatedDelivery = new Date(now.getTime() + deliveryDays * 24 * 60 * 60 * 1000)
+    try {
+      const payload = {
+        items: state.cart.map(item => ({
+          bookId: item.book.id,
+          quantity: item.quantity,
+          format: 'Paperback',
+        })),
+        shippingAddress: {
+          name: state.shipping?.name || state.user.name || '',
+          phone: state.shipping?.phone || state.user.phone || '',
+          line1: state.shipping?.line1 || '',
+          line2: state.shipping?.line2 || '',
+          city: state.shipping?.city || '',
+          district: state.shipping?.district || '',
+          province: state.shipping?.province || '',
+          postalCode: state.shipping?.postalCode || '44600',
+          notes: state.shipping?.notes || '',
+        },
+        shippingMethod: state.shipping?.method || 'standard',
+        paymentMethod: state.payment.method || 'cod',
+        transactionId: transactionIdOverride || state.payment.transactionId,
+      }
 
-    const order: Order = {
-      id: orderId,
-      userId: state.user?.id || 'guest',
-      items: state.cart.map(item => ({
-        bookId: item.book.id,
-        quantity: item.quantity,
-        price: item.book.price,
-      })),
-      subtotal: totals.subtotal,
-      shipping: totals.shipping,
-      discount: totals.discount,
-      total: totals.total,
-      status: 'confirmed',
-      paymentMethod: state.payment.method || 'cod',
-      paymentStatus: state.payment.method === 'cod' ? 'pending' : 'paid',
-      transactionId,
-      paymentDate: state.payment.method !== 'cod' ? now.toISOString() : undefined,
-      shippingAddress: {
-        name: state.shipping?.name || '',
-        phone: state.shipping?.phone || '',
-        line1: state.shipping?.line1 || '',
-        line2: state.shipping?.line2,
-        city: state.shipping?.city || '',
-        district: state.shipping?.district || '',
-        province: state.shipping?.province || '',
-        postalCode: state.shipping?.postalCode || '',
-        notes: state.shipping?.notes,
-      },
-      shippingMethod: state.shipping?.method || 'standard',
-      createdAt: now.toISOString(),
-      estimatedDelivery: estimatedDelivery.toISOString().slice(0, 10),
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      const data = await res.json()
+      if (res.ok && data.success && data.order) {
+        dispatch({ type: 'PLACE_ORDER', payload: data.order })
+        return { success: true, order: data.order }
+      }
+
+      return {
+        success: false,
+        error: data.error || 'Failed to place order.',
+        status: res.status,
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Network error while placing order.',
+      }
     }
-
-    dispatch({ type: 'PLACE_ORDER', payload: order })
-    return order
   }
 
   // Admin stats computed
@@ -463,11 +642,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         checkoutStep: state.checkoutStep,
         adminStats,
         dispatch,
+        isAuthLoading,
         // Auth
         login,
         logout,
         register,
         updateProfile,
+        uploadAvatar,
+        removeAvatar,
         // Cart
         addToCart,
         removeFromCart,

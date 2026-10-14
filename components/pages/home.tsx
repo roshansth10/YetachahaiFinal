@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowRight, BookOpen, Truck, Users, Sparkles, Search, Brain, Heart, Rocket, Clock, Target, Star, ChevronRight } from 'lucide-react'
 import BookCard from '@/components/book-card'
@@ -10,32 +11,43 @@ interface HomePageProps {
   onNavigate: (page: string, data?: unknown) => void
 }
 
-const genreIcons: Record<string, React.ElementType> = {
-  'book-open': BookOpen,
-  'search': Search,
-  'sparkles': Sparkles,
-  'target': Target,
-  'brain': Brain,
-  'heart': Heart,
-  'rocket': Rocket,
-  'clock': Clock,
-}
-
-const genreColors: Record<string, string> = {
-  'Fiction': 'bg-primary/10 hover:bg-primary/15 border-primary/20',
-  'Mystery': 'bg-amber-600/10 hover:bg-amber-600/15 border-amber-600/20',
-  'Fantasy': 'bg-purple-600/10 hover:bg-purple-600/15 border-purple-600/20',
-  'Self-Help': 'bg-emerald-600/10 hover:bg-emerald-600/15 border-emerald-600/20',
-  'Philosophy': 'bg-stone-500/10 hover:bg-stone-500/15 border-stone-500/20',
-  'Romance': 'bg-rose-500/10 hover:bg-rose-500/15 border-rose-500/20',
-  'Sci-Fi': 'bg-cyan-600/10 hover:bg-cyan-600/15 border-cyan-600/20',
-  'History': 'bg-yellow-700/10 hover:bg-yellow-700/15 border-yellow-700/20',
+const genreTileStyles: Record<string, { bg: string; border: string }> = {
+  fiction: { bg: 'bg-[#f6ede6] hover:bg-[#f2e6dc] dark:bg-card', border: 'border-[#dfcec1] dark:border-border' },
+  mystery: { bg: 'bg-[#edeae4] hover:bg-[#e6e2da] dark:bg-card', border: 'border-[#d3ccc0] dark:border-border' },
+  fantasy: { bg: 'bg-[#efecef] hover:bg-[#e7e3e7] dark:bg-card', border: 'border-[#d6cdd8] dark:border-border' },
+  'self-help': { bg: 'bg-[#edf2ec] hover:bg-[#e4ece3] dark:bg-card', border: 'border-[#cbdbcb] dark:border-border' },
+  philosophy: { bg: 'bg-[#f5f0e8] hover:bg-[#ede6dc] dark:bg-card', border: 'border-[#ded4c5] dark:border-border' },
+  romance: { bg: 'bg-[#f9ecec] hover:bg-[#f3e2e2] dark:bg-card', border: 'border-[#e4c9c9] dark:border-border' },
+  'sci-fi': { bg: 'bg-[#eaf0f2] hover:bg-[#e1e9ec] dark:bg-card', border: 'border-[#c7d9dd] dark:border-border' },
+  history: { bg: 'bg-[#f4eee3] hover:bg-[#ede5d6] dark:bg-card', border: 'border-[#dfd3be] dark:border-border' },
 }
 
 export default function HomePage({ onNavigate }: HomePageProps) {
   const bestsellers = getBestsellers().slice(0, 6)
   const newArrivals = getNewArrivals().slice(0, 8)
   const featured = getFeaturedBooks()
+
+  // Exactly 8 distinct trending books without duplicates
+  const trendingBooks = useMemo(() => {
+    const list: typeof books = []
+    const seen = new Set<string>()
+    for (const b of [...getFeaturedBooks(), ...getBestsellers(), ...books]) {
+      if (!seen.has(b.id)) {
+        seen.add(b.id)
+        list.push(b)
+        if (list.length === 8) break
+      }
+    }
+    return list
+  }, [])
+
+  // Computed book count for all 8 categories
+  const dynamicCategories = useMemo(() => {
+    return categories.map(cat => ({
+      ...cat,
+      bookCount: books.filter(b => b.genre.toLowerCase() === cat.name.toLowerCase() || b.genres.some(g => g.toLowerCase() === cat.name.toLowerCase())).length,
+    }))
+  }, [])
 
   // 3 prominent real books for the hero showcase composition
   const heroBook1 = getBookById('1') || books[0] // The Midnight Library
@@ -215,32 +227,29 @@ export default function HomePage({ onNavigate }: HomePageProps) {
       </section>
 
       {/* Trending Now - Bento Grid */}
+      {/* Trending Now - Clean Responsive Grid (2 cols phone, 3 tablet, 4 laptop) */}
       <section className="container mx-auto px-4 py-12 md:py-20 max-w-7xl">
         <div className="flex items-end justify-between mb-8 pb-3 border-b border-border/60">
           <div>
             <h2 className="font-serif text-3xl md:text-4xl font-bold italic text-foreground tracking-tight">
               Trending Now
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">The most read and discussed titles in Kathmandu</p>
+            <p className="mt-1 text-sm text-muted-foreground">What readers in Kathmandu are picking up this week.</p>
           </div>
           <button
             onClick={() => onNavigate('catalog')}
             className="text-primary hover:underline text-sm font-semibold flex items-center gap-1 min-h-[44px] focus:outline-none"
+            aria-label="View all trending titles in catalogue"
           >
             <span>View All</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-          {/* Bento featured tile */}
-          <div className="col-span-2 md:col-span-2 lg:col-span-2">
-            <BookCard book={featured[0] || books[0]} variant="featured" onNavigate={onNavigate} />
-          </div>
-
-          {/* Additional trending books */}
-          {bestsellers.slice(0, 4).map((book) => (
-            <div key={book.id} className="col-span-1">
+        {/* 8 Distinct Books, Uniform Height, Contained 2:3 Covers */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 items-stretch">
+          {trendingBooks.map((book) => (
+            <div key={book.id} className="h-full flex flex-col">
               <BookCard book={book} variant="default" onNavigate={onNavigate} />
             </div>
           ))}
@@ -310,22 +319,21 @@ export default function HomePage({ onNavigate }: HomePageProps) {
         </div>
       </section>
 
-      {/* Browse by Genre Tiles with Computed Counts */}
-      <section className="py-12 md:py-20 bg-card/40 border-y border-border/60">
+      {/* Browse by Genre Tiles with Hand-Drawn Monoline Icons */}
+      <section className="py-12 md:py-20 bg-[#f7f3eb]/60 dark:bg-card/40 border-y border-border/60">
         <div className="container mx-auto px-4 max-w-7xl">
           <div className="text-center max-w-2xl mx-auto mb-10">
             <h2 className="font-serif text-3xl md:text-4xl font-bold italic text-foreground tracking-tight">
               Browse by Genre
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Explore curated titles across all 8 major literary categories
+              Explore curated titles across all {dynamicCategories.length} major literary categories
             </p>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-6">
-            {categories.map((category) => {
-              const IconComponent = genreIcons[category.icon] || BookOpen
-              const style = genreColors[category.name] || 'bg-muted/50 border-border/50'
+            {dynamicCategories.map((category) => {
+              const style = genreTileStyles[category.slug] || { bg: 'bg-[#f6ede6]', border: 'border-[#dfcec1]' }
               return (
                 <motion.div
                   key={category.id}
@@ -334,11 +342,25 @@ export default function HomePage({ onNavigate }: HomePageProps) {
                 >
                   <button
                     onClick={() => onNavigate('catalog', category.name)}
-                    className={`block w-full text-left p-4 sm:p-6 rounded-2xl border ${style} shadow-xs hover:shadow-md transition-all min-h-[110px] focus:outline-none focus:ring-2 focus:ring-primary`}
+                    aria-label={`Browse ${category.name} books (${category.bookCount} titles available)`}
+                    className={`block w-full text-left p-4 sm:p-6 rounded-2xl border ${style.bg} ${style.border} shadow-xs hover:shadow-md transition-all min-h-[120px] focus:outline-none focus:ring-2 focus:ring-primary`}
                   >
-                    <IconComponent className="w-6 h-6 sm:w-8 sm:h-8 text-foreground mb-2 sm:mb-3" />
-                    <h3 className="font-serif font-bold text-base sm:text-lg text-foreground">{category.name}</h3>
-                    <p className="text-xs text-muted-foreground font-mono mt-0.5">{category.bookCount} books</p>
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 mb-3 flex items-center justify-center">
+                      <img
+                        src={`/icons/genres/${category.slug}.svg`}
+                        alt=""
+                        aria-hidden="true"
+                        width={36}
+                        height={36}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <h3 className="font-serif font-bold text-base sm:text-lg text-[#3d2d1d] dark:text-foreground">
+                      {category.name}
+                    </h3>
+                    <p className="text-xs text-[#3d2d1d]/70 dark:text-muted-foreground font-mono mt-0.5">
+                      {category.bookCount} books
+                    </p>
                   </button>
                 </motion.div>
               )

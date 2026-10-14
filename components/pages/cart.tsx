@@ -14,12 +14,21 @@ interface CartPageProps {
 }
 
 export default function CartPage({ onNavigate }: CartPageProps) {
-  const { cart, updateQuantity, removeFromCart, getCartTotal, clearCart } = useStore()
+  const { cart, updateQuantity, removeFromCart, getCartTotal, clearCart, user } = useStore()
   const [couponCode, setCouponCode] = useState('')
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null)
 
   const totals = getCartTotal()
   const isEmpty = cart.length === 0
+
+  const handleProceedToCheckout = () => {
+    if (!user) {
+      toast.info('Please sign in to place your order.')
+      onNavigate('login', { redirect: '/checkout' })
+      return
+    }
+    onNavigate('checkout')
+  }
 
   const handleApplyCoupon = () => {
     if (couponCode.trim().toUpperCase() === 'WELCOME10') {
@@ -241,11 +250,11 @@ export default function CartPage({ onNavigate }: CartPageProps) {
             </div>
 
             <Button 
-              className="w-full bg-primary hover:bg-primary/90" 
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl min-h-[46px]" 
               size="lg"
-              onClick={() => onNavigate('checkout')}
+              onClick={handleProceedToCheckout}
             >
-              Proceed to Checkout
+              {user ? 'Proceed to Checkout' : 'Sign in to checkout'}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
 

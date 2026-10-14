@@ -55,12 +55,24 @@ export default function App() {
     } else if (pathname === "/checkout") {
       setCurrentPage("checkout")
       setPageData(null)
+    } else if (pathname === "/orders" || pathname.startsWith("/orders/")) {
+      setCurrentPage("profile")
+      setPageData({ tab: 'orders' })
     } else if (pathname === "/profile") {
       setCurrentPage("profile")
-      setPageData(null)
-    } else if (pathname === "/auth") {
-      setCurrentPage("auth")
-      setPageData(null)
+      const params = new URLSearchParams(search)
+      const tab = params.get("tab")
+      setPageData(tab ? { tab } : null)
+    } else if (pathname === "/signup") {
+      setCurrentPage("signup")
+      const params = new URLSearchParams(search)
+      const redirect = params.get("redirect")
+      setPageData(redirect ? { redirect } : null)
+    } else if (pathname === "/login" || pathname === "/auth") {
+      setCurrentPage("login")
+      const params = new URLSearchParams(search)
+      const redirect = params.get("redirect")
+      setPageData(redirect ? { redirect } : null)
     } else if (pathname === "/admin") {
       setCurrentPage("admin")
       setPageData(null)
@@ -104,9 +116,16 @@ export default function App() {
       } else if (page === "checkout") {
         url = "/checkout"
       } else if (page === "profile") {
-        url = "/profile"
-      } else if (page === "auth") {
-        url = "/auth"
+        const tab = (data as { tab?: string })?.tab
+        url = tab ? `/profile?tab=${tab}` : "/profile"
+      } else if (page === "orders") {
+        url = "/orders"
+      } else if (page === "login" || page === "auth") {
+        const redirect = (data as { redirect?: string })?.redirect
+        url = redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : "/login"
+      } else if (page === "signup") {
+        const redirect = (data as { redirect?: string })?.redirect
+        url = redirect ? `/signup?redirect=${encodeURIComponent(redirect)}` : "/signup"
       } else if (page === "admin") {
         url = "/admin"
       }
@@ -121,9 +140,25 @@ export default function App() {
       return <AdminDashboard onNavigate={navigate} />
     }
 
-    // Auth page has its own layout
-    if (currentPage === "auth") {
-      return <AuthPage onNavigate={navigate} />
+    // Auth & Login / Signup pages have their own full-screen brand layout
+    if (currentPage === "login" || currentPage === "auth") {
+      return (
+        <AuthPage
+          onNavigate={navigate}
+          initialMode="login"
+          redirectTo={(pageData as { redirect?: string })?.redirect}
+        />
+      )
+    }
+
+    if (currentPage === "signup") {
+      return (
+        <AuthPage
+          onNavigate={navigate}
+          initialMode="register"
+          redirectTo={(pageData as { redirect?: string })?.redirect}
+        />
+      )
     }
 
     // Customer pages with layout
@@ -148,7 +183,7 @@ export default function App() {
         content = <CheckoutPage onNavigate={navigate} />
         break
       case "profile":
-        content = <ProfilePage onNavigate={navigate} />
+        content = <ProfilePage onNavigate={navigate} initialTab={(pageData as { tab?: "profile" | "orders" | "settings" })?.tab} />
         break
       default:
         content = <HomePage onNavigate={navigate} />

@@ -18,8 +18,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useStore } from '@/lib/store'
-import { nepalCities, nepalDistricts, nepalProvinces } from '@/lib/data'
+import { nepalCities, nepalDistricts, nepalProvinces, type Order } from '@/lib/data'
 import { toast } from 'sonner'
+import UserAvatar from '@/components/ui/user-avatar'
 
 // Payment Modal Components
 import EsewaPaymentModal from '@/components/payment/esewa-modal'
@@ -31,11 +32,11 @@ interface CheckoutPageProps {
 }
 
 export default function CheckoutPage({ onNavigate }: CheckoutPageProps) {
-  const { state, user, cart, setShipping, setPaymentMethod, setCheckoutStep, getCartTotal, placeOrder, dispatch } = useStore()
+  const { state, user, cart, setShipping, setPaymentMethod, setCheckoutStep, getCartTotal, placeOrder, dispatch, isAuthLoading } = useStore()
   const [isProcessing, setIsProcessing] = useState(false)
   const [showEsewaModal, setShowEsewaModal] = useState(false)
   const [showKhaltiModal, setShowKhaltiModal] = useState(false)
-  const [completedOrder, setCompletedOrder] = useState<ReturnType<typeof placeOrder> | null>(null)
+  const [completedOrder, setCompletedOrder] = useState<Order | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -63,30 +64,38 @@ export default function CheckoutPage({ onNavigate }: CheckoutPageProps) {
   const totals = getCartTotal()
   const isEmpty = cart.length === 0
 
+  // Enforce logged-in user: redirect guest to login with clear message
+  useEffect(() => {
+    if (!isAuthLoading && !user) {
+      toast.info('Please sign in to place your order.')
+      onNavigate('login', { redirect: '/checkout' })
+    }
+  }, [user, isAuthLoading, onNavigate])
+
   // Populate form data with user info when state is ready
   useEffect(() => {
     if (user) {
       const addr = typeof user.address === 'object' ? user.address : undefined
       setFormData(prev => ({
         ...prev,
-        name: user.name || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        line1: addr?.line1 || (typeof user.address === 'string' ? user.address : ''),
-        line2: addr?.line2 || '',
-        city: addr?.city || '',
-        district: addr?.district || '',
-        province: addr?.province || '',
-        postalCode: addr?.postalCode || '',
+        name: user.name || prev.name || '',
+        email: user.email || prev.email || '',
+        phone: user.phone || prev.phone || '',
+        line1: addr?.line1 || (typeof user.address === 'string' ? user.address : prev.line1) || '',
+        line2: addr?.line2 || prev.line2 || '',
+        city: addr?.city || prev.city || '',
+        district: addr?.district || prev.district || '',
+        province: addr?.province || prev.province || '',
+        postalCode: addr?.postalCode || prev.postalCode || '',
       }))
     }
   }, [user])
 
   useEffect(() => {
-    if (isEmpty) {
+    if (isEmpty && !completedOrder) {
       onNavigate('cart')
     }
-  }, [isEmpty, onNavigate])
+  }, [isEmpty, completedOrder, onNavigate])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -177,24 +186,47 @@ export default function CheckoutPage({ onNavigate }: CheckoutPageProps) {
     }
   }
 
-  const handleCODPayment = () => {
+  const handleCODPayment = async () => {
     setIsProcessing(true)
-    setTimeout(() => {
-      const order = placeOrder()
-      setCompletedOrder(order)
+    const result = await placeOrder()
+    setIsProcessing(false)
+
+    if (result.success && result.order) {
+      setCompletedOrder(result.order)
       setCheckoutStep(3)
-      setIsProcessing(false)
-    }, 1500)
+      toast.success('Order placed successfully!', {
+        description: `Order #${result.order.id} confirmed.`,
+      })
+    } else if (result.status === 401 || result.error?.includes('Unauthorized') || result.error?.includes('sign in')) {
+      toast.error('Your session expired, please sign in again to complete your order.')
+      onNavigate('login', { redirect: '/checkout' })
+    } else {
+      toast.error(result.error || 'Failed to place order. Please try again.')
+    }
   }
 
-  const handlePaymentSuccess = (transactionId: string) => {
+  const handlePaymentSuccess = async (transactionId: string) => {
     dispatch({ type: 'SET_TRANSACTION_ID', payload: transactionId })
     dispatch({ type: 'SET_PAYMENT_STATUS', payload: 'success' })
-    const order = placeOrder()
-    setCompletedOrder(order)
-    setCheckoutStep(3)
+    setIsProcessing(true)
+
+    const result = await placeOrder(transactionId)
+    setIsProcessing(false)
     setShowEsewaModal(false)
     setShowKhaltiModal(false)
+
+    if (result.success && result.order) {
+      setCompletedOrder(result.order)
+      setCheckoutStep(3)
+      toast.success('Payment verified & order placed!', {
+        description: `Order #${result.order.id} confirmed.`,
+      })
+    } else if (result.status === 401 || result.error?.includes('Unauthorized') || result.error?.includes('sign in')) {
+      toast.error('Your session expired, please sign in again to complete your order.')
+      onNavigate('login', { redirect: '/checkout' })
+    } else {
+      toast.error(result.error || 'Failed to complete order. Please try again.')
+    }
   }
 
   // Calculate shipping cost based on method
@@ -216,6 +248,28 @@ export default function CheckoutPage({ onNavigate }: CheckoutPageProps) {
     { number: 2, label: 'Payment' },
     { number: 3, label: 'Confirmation' },
   ]
+
+  if (!user && !isAuthLoading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center px-4 py-16">
+        <div className="text-center max-w-md bg-card border border-border p-8 rounded-2xl shadow-sm">
+          <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-4">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-serif font-bold text-foreground mb-2">Sign in to checkout</h2>
+          <p className="text-muted-foreground text-sm mb-6">
+            Please sign in to place your order. Your cart items are saved and ready.
+          </p>
+          <Button
+            onClick={() => onNavigate('login', { redirect: '/checkout' })}
+            className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl min-h-[44px]"
+          >
+            Sign In to Place Order
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   if (state?.checkoutStep === 3 && completedOrder) {
     return <OrderConfirmation order={completedOrder} />
@@ -274,6 +328,16 @@ export default function CheckoutPage({ onNavigate }: CheckoutPageProps) {
                       Shipping Information
                     </h2>
                   </div>
+
+                  {user && (
+                    <div className="mb-6 flex items-center gap-3 p-3.5 bg-muted/30 border border-border/70 rounded-xl">
+                      <UserAvatar user={user} size="sm" />
+                      <div className="overflow-hidden">
+                        <p className="text-[11px] text-muted-foreground font-medium">Logged in customer</p>
+                        <p className="text-sm font-semibold text-foreground truncate">{user.name} ({user.email})</p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-6">
                     {/* Personal Information Section */}

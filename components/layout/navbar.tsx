@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store'
 import { categories } from '@/lib/data'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import UserAvatar from '@/components/ui/user-avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +21,7 @@ interface NavbarProps {
 }
 
 export default function Navbar({ onNavigate }: NavbarProps) {
-  const { user, cart, wishlist, logout } = useStore()
+  const { user, cart, wishlist, logout, isAuthLoading } = useStore()
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -151,47 +152,51 @@ export default function Navbar({ onNavigate }: NavbarProps) {
             </button>
 
             {/* User Menu on Desktop */}
-            {user ? (
+            {isAuthLoading ? (
+              // Skeleton placeholder — prevents sign-in flash for logged-in users
+              <div className="hidden md:block w-8 h-8 rounded-full bg-muted animate-pulse" aria-hidden="true" />
+            ) : user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
-                    className="flex items-center gap-2 min-w-[44px] min-h-[44px] justify-center p-1.5 text-foreground hover:text-primary transition-colors rounded-full focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="flex items-center gap-2 min-w-[44px] min-h-[44px] justify-center p-1 text-foreground hover:text-primary transition-colors rounded-full focus:outline-none focus:ring-2 focus:ring-primary"
                     aria-label="User account menu"
                   >
-                    {user.avatar ? (
-                      <img src={user.avatar} alt={user.name} className="w-8 h-8 rounded-full object-cover border border-primary/30" />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">
-                        {user.name.charAt(0)}
-                      </div>
-                    )}
+                    <UserAvatar user={user} size="sm" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-card border-border/80 shadow-xl rounded-xl p-1.5">
-                  <div className="px-3 py-2">
-                    <p className="font-semibold text-foreground text-sm">{user.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                <DropdownMenuContent align="end" className="w-60 bg-card border-border/80 shadow-xl rounded-xl p-1.5">
+                  <div className="px-3 py-2.5 flex items-center gap-3">
+                    <UserAvatar user={user} size="md" />
+                    <div className="overflow-hidden">
+                      <p className="font-semibold text-foreground text-sm truncate">{user.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    </div>
                   </div>
                   <DropdownMenuSeparator />
                   {user.role === 'admin' && (
                     <>
                       <DropdownMenuItem onClick={() => onNavigate('admin')} className="cursor-pointer">
-                        <Settings className="w-4 h-4 mr-2" />
+                        <Settings className="w-4 h-4 mr-2 text-muted-foreground" />
                         Admin Dashboard
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                     </>
                   )}
-                  <DropdownMenuItem onClick={() => onNavigate('profile')} className="cursor-pointer">
-                    <User className="w-4 h-4 mr-2" />
+                  <DropdownMenuItem onClick={() => onNavigate('profile', { tab: 'profile' })} className="cursor-pointer">
+                    <User className="w-4 h-4 mr-2 text-muted-foreground" />
                     My Profile
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onNavigate('profile')} className="cursor-pointer">
-                    <Package className="w-4 h-4 mr-2" />
+                  <DropdownMenuItem onClick={() => onNavigate('profile', { tab: 'orders' })} className="cursor-pointer">
+                    <Package className="w-4 h-4 mr-2 text-muted-foreground" />
                     My Orders
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onNavigate('wishlist')} className="cursor-pointer">
+                    <Heart className="w-4 h-4 mr-2 text-muted-foreground" />
+                    Wishlist
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout} className="text-destructive cursor-pointer">
+                  <DropdownMenuItem onClick={handleLogout} className="text-destructive cursor-pointer focus:text-destructive focus:bg-destructive/10">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign Out
                   </DropdownMenuItem>
@@ -201,8 +206,8 @@ export default function Navbar({ onNavigate }: NavbarProps) {
               <Button
                 variant="outline"
                 size="sm"
-                className="hidden md:inline-flex h-9 px-4 rounded-xl font-medium border-primary/30 hover:bg-primary hover:text-primary-foreground"
-                onClick={() => onNavigate('auth')}
+                className="hidden md:inline-flex h-9 px-4 rounded-xl font-medium border-primary/30 hover:bg-primary hover:text-primary-foreground transition-colors"
+                onClick={() => onNavigate('login')}
               >
                 Sign In
               </Button>
@@ -300,12 +305,33 @@ export default function Navbar({ onNavigate }: NavbarProps) {
                 <div className="pt-3 border-t border-border/60 mt-3">
                   {user ? (
                     <>
+                      <div className="flex items-center gap-3 px-4 py-2 mb-2 bg-muted/30 rounded-xl">
+                        <UserAvatar user={user} size="sm" />
+                        <div className="overflow-hidden">
+                          <p className="text-sm font-semibold text-foreground truncate">{user.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                        </div>
+                      </div>
                       <button
-                        onClick={() => handleNavClick('profile')}
+                        onClick={() => handleNavClick('profile', { tab: 'profile' })}
                         className="flex items-center w-full min-h-[44px] px-4 py-2.5 text-sm font-medium text-foreground hover:bg-primary/10 rounded-xl transition-colors text-left"
                       >
-                        <User className="w-4 h-4 mr-3" />
-                        My Profile & Orders
+                        <User className="w-4 h-4 mr-3 text-muted-foreground" />
+                        My Profile
+                      </button>
+                      <button
+                        onClick={() => handleNavClick('profile', { tab: 'orders' })}
+                        className="flex items-center w-full min-h-[44px] px-4 py-2.5 text-sm font-medium text-foreground hover:bg-primary/10 rounded-xl transition-colors text-left"
+                      >
+                        <Package className="w-4 h-4 mr-3 text-muted-foreground" />
+                        My Orders
+                      </button>
+                      <button
+                        onClick={() => handleNavClick('wishlist')}
+                        className="flex items-center w-full min-h-[44px] px-4 py-2.5 text-sm font-medium text-foreground hover:bg-primary/10 rounded-xl transition-colors text-left"
+                      >
+                        <Heart className="w-4 h-4 mr-3 text-muted-foreground" />
+                        Wishlist
                       </button>
                       <button
                         onClick={handleLogout}
@@ -316,13 +342,21 @@ export default function Navbar({ onNavigate }: NavbarProps) {
                       </button>
                     </>
                   ) : (
-                    <button
-                      onClick={() => handleNavClick('auth')}
-                      className="flex items-center w-full min-h-[44px] px-4 py-2.5 text-base font-semibold text-primary hover:bg-primary/10 rounded-xl transition-colors text-left"
-                    >
-                      <User className="w-4 h-4 mr-3" />
-                      Sign In / Register
-                    </button>
+                    <div className="grid grid-cols-2 gap-2 px-1">
+                      <Button
+                        variant="outline"
+                        className="w-full min-h-[44px] rounded-xl font-medium border-primary/30"
+                        onClick={() => handleNavClick('login')}
+                      >
+                        Sign In
+                      </Button>
+                      <Button
+                        className="w-full min-h-[44px] rounded-xl font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+                        onClick={() => handleNavClick('signup')}
+                      >
+                        Register
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>

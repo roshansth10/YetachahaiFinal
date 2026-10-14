@@ -16,7 +16,7 @@ interface BookCardProps {
 }
 
 export default function BookCard({ book, variant = 'default', showRank, onNavigate, priority = false }: BookCardProps) {
-  const { addToCart, addToWishlist, removeFromWishlist, isInWishlist } = useStore()
+  const { user, addToCart, addToWishlist, removeFromWishlist, isInWishlist } = useStore()
   const inWishlist = isInWishlist(book.id) || isInWishlist(book.slug)
 
   const handleAddToCart = (e: React.MouseEvent) => {
@@ -31,6 +31,15 @@ export default function BookCard({ book, variant = 'default', showRank, onNaviga
   const handleWishlistToggle = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (!user) {
+      toast.info('Please sign in to save books to your wishlist', {
+        action: {
+          label: 'Sign In',
+          onClick: () => onNavigate?.('login'),
+        },
+      })
+      return
+    }
     if (inWishlist) {
       removeFromWishlist(book.id)
       toast.success('Removed from wishlist')
@@ -231,18 +240,17 @@ export default function BookCard({ book, variant = 'default', showRank, onNaviga
     >
       {/* Cover Image Box - Fixed 2:3 aspect ratio on soft background */}
       <div className="relative aspect-[2/3] w-full bg-[#f6f1e8] dark:bg-muted/40 p-3 sm:p-4 flex items-center justify-center overflow-hidden cursor-pointer" onClick={handleNavigate}>
-        {/* Badges */}
-        <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1 pointer-events-none">
-          {book.isNewArrival && (
-            <span className="px-2 py-0.5 text-[10px] sm:text-xs font-mono font-bold bg-emerald-600 text-white rounded-md shadow-xs">
-              NEW
-            </span>
-          )}
-          {book.isBestseller && (
+        {/* Single Badge - BESTSELLER takes priority over NEW, positioned away from heart */}
+        <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
+          {book.isBestseller ? (
             <span className="px-2 py-0.5 text-[10px] sm:text-xs font-mono font-bold bg-primary text-primary-foreground rounded-md shadow-xs">
               BESTSELLER
             </span>
-          )}
+          ) : book.isNewArrival ? (
+            <span className="px-2 py-0.5 text-[10px] sm:text-xs font-mono font-bold bg-emerald-700 text-white rounded-md shadow-xs">
+              NEW
+            </span>
+          ) : null}
         </div>
 
         {/* Wishlist Toggle Button */}
@@ -254,26 +262,16 @@ export default function BookCard({ book, variant = 'default', showRank, onNaviga
           <Heart className={`w-4 h-4 ${inWishlist ? 'fill-primary text-primary' : ''}`} />
         </button>
 
-        {/* Real Cover Image: Full, Uncropped, Contained with drop shadow */}
-        <img
-          src={book.coverImage}
-          alt={`Cover of ${book.title} by ${book.author}`}
-          loading={priority ? 'eager' : 'lazy'}
-          width={240}
-          height={360}
-          className="h-full w-auto max-w-full object-contain rounded drop-shadow-md group-hover:scale-105 transition-transform duration-300"
-        />
-
-        {/* Quick Add Overlay on desktop hover; accessible on touch via card controls */}
-        <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-background/90 via-background/40 to-transparent translate-y-full group-hover:translate-y-0 transition-transform duration-300 hidden md:flex gap-2 justify-center">
-          <Button
-            onClick={handleAddToCart}
-            size="sm"
-            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-md rounded-xl text-xs font-medium h-9"
-          >
-            <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
-            Add to Cart
-          </Button>
+        {/* Real Cover Image: Full, Uncropped, Contained with authentic book shadow/spine effect */}
+        <div className="relative h-full flex items-center justify-center">
+          <img
+            src={book.coverImage}
+            alt={`Cover of ${book.title} by ${book.author}`}
+            loading={priority ? 'eager' : 'lazy'}
+            width={240}
+            height={360}
+            className="h-full w-auto max-w-full object-contain rounded drop-shadow-[2px_4px_10px_rgba(0,0,0,0.18)] group-hover:scale-105 transition-transform duration-300"
+          />
         </div>
       </div>
 
@@ -290,11 +288,11 @@ export default function BookCard({ book, variant = 'default', showRank, onNaviga
             </span>
           </div>
 
-          {/* Title - Truncates to 2 lines, shows full title in hover tooltip */}
+          {/* Title - Truncates to 2 lines with consistent min-height for equal card heights */}
           <button onClick={handleNavigate} className="text-left w-full focus:outline-none">
             <h3
               title={book.title}
-              className="font-serif font-semibold text-foreground text-sm sm:text-base line-clamp-2 leading-snug hover:text-primary transition-colors"
+              className="font-serif font-semibold text-foreground text-sm sm:text-base line-clamp-2 min-h-[2.5rem] leading-snug hover:text-primary transition-colors"
             >
               {book.title}
             </h3>
@@ -302,8 +300,8 @@ export default function BookCard({ book, variant = 'default', showRank, onNaviga
           <p className="text-xs text-muted-foreground mt-0.5 truncate">{book.author}</p>
         </div>
 
-        {/* Price & Action Row - Always single line with smaller strike-through */}
-        <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-2">
+        {/* Price & Action Row - Always single line with always-visible Add to Cart button */}
+        <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-2 mt-auto">
           <div className="flex flex-wrap items-baseline gap-1.5 min-w-0">
             <span className="font-mono text-sm sm:text-base font-bold text-primary whitespace-nowrap">
               {formatPrice(book.price)}
@@ -315,15 +313,15 @@ export default function BookCard({ book, variant = 'default', showRank, onNaviga
             )}
           </div>
 
-          {/* Mobile-friendly Add to Cart Icon button (visible on mobile / touch) */}
+          {/* Always Visible Add to Cart Button */}
           <Button
             onClick={handleAddToCart}
-            size="icon"
-            variant="outline"
-            className="md:hidden h-8 w-8 rounded-lg shrink-0 border-primary/30 hover:bg-primary hover:text-primary-foreground"
+            size="sm"
+            className="h-8 px-3 rounded-lg text-xs font-medium bg-primary hover:bg-primary/90 text-primary-foreground flex items-center gap-1.5 shrink-0 shadow-xs"
             aria-label={`Add ${book.title} to cart`}
           >
-            <ShoppingCart className="w-4 h-4" />
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>Add</span>
           </Button>
         </div>
       </div>

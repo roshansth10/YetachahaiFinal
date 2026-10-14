@@ -21,6 +21,7 @@ import {
   MoreHorizontal,
   LogOut,
   Home,
+  Loader2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -80,11 +81,23 @@ const categoryData = [
 ]
 
 export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
-  const { user, logout, adminStats } = useStore()
+  const { user, logout, adminStats, isAuthLoading } = useStore()
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
-  // Redirect if not admin
+  // Show spinner while session check is in flight
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+          <p className="text-sm text-muted-foreground font-serif">Loading admin panel...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Redirect if not admin (only after auth has resolved)
   if (!user || user.role !== "admin") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
