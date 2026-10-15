@@ -1,7 +1,22 @@
 'use client'
 
 import { createContext, useContext, useReducer, useEffect, useState, type ReactNode } from 'react'
-import { mockBooks as books, mockUsers as users, type Book, type User, type Order } from './data'
+import { mockBooks as books, type Book, type User, type Order } from './data'
+import {
+  initStorageAuth,
+  getStoredUsers,
+  saveStoredUsers,
+  getSession,
+  setSession,
+  verifyPassword,
+  hashPassword,
+  getLockoutState,
+  recordFailedAttempt,
+  clearLockout,
+  type SessionUser,
+  type StoredUser,
+} from './auth-client'
+import { STORAGE_KEYS } from './auth-constants'
 
 // Admin Stats type
 export interface AdminStats {
@@ -206,11 +221,11 @@ interface StoreContextType {
   dispatch: React.Dispatch<Action>
   isAuthLoading: boolean
   // Auth
-  login: (email: string, password: string) => Promise<boolean>
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
-  register: (data: { email: string; password: string; name: string; phone?: string; address?: string }) => Promise<boolean>
+  register: (data: { email: string; password: string; name: string; phone?: string; address?: string }) => Promise<{ success: boolean; error?: string }>
   updateProfile: (data: { name?: string; phone?: string; address?: unknown }) => Promise<boolean>
-  uploadAvatar: (file: Blob | File) => Promise<{ success: boolean; avatarUrl?: string; error?: string }>
+  uploadAvatar: (dataUrl: string) => Promise<{ success: boolean; avatarUrl?: string; error?: string }>
   removeAvatar: () => Promise<boolean>
   // Cart
   addToCart: (book: Book, quantity?: number) => void
@@ -240,7 +255,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [isAuthLoading, setIsAuthLoading] = useState(true)
 
   // Helper: Merge guest cart with user's saved account cart
-  const mergeGuestCartOnLogin = (guestCart: CartItem[], loggedInUser: User) => {
+  const mergeGuestCartOnLogin = (guestCart: CartItem[], loggedInUser: User | StoredUser) => {
     const accountCartKey = `yetaxahai_account_cart_${loggedInUser.id}`
     let accountCart: CartItem[] = []
     try {
@@ -282,41 +297,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch {}
   }
 
-  // 1. Check authenticated session from secure httpOnly cookie on mount
+  // 1. Initialise localStorage auth and restore session if present
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then(res => res.json())
-      .then(data => {
-        if (data?.user) {
-          dispatch({ type: 'LOGIN', payload: data.user })
-          // Restore user's orders from server
-          fetch('/api/orders')
-            .then(r => r.json())
-            .then(orderData => {
-              if (orderData?.orders) {
-                dispatch({ type: 'SET_ORDERS', payload: orderData.orders })
+    async function initAuth() {
+      try {
+        await initStorageAuth()
+        const session = getSession()
+        if (session) {
+          const users = getStoredUsers()
+          const matchedUser = users.find(u => u.id === session.id)
+          if (matchedUser) {
+            dispatch({ type: 'LOGIN', payload: matchedUser as unknown as User })
+            // Restore user's orders from localStorage
+            try {
+              const ordersRaw = localStorage.getItem(STORAGE_KEYS.ORDERS_PREFIX + matchedUser.id)
+              if (ordersRaw) {
+                dispatch({ type: 'SET_ORDERS', payload: JSON.parse(ordersRaw) })
               }
-            })
-            .catch(() => {})
+            } catch {}
+          } else {
+            setSession(null)
+          }
         }
-      })
-      .catch(err => {
-        console.error('Failed to restore session:', err)
-      })
-      .finally(() => {
+      } catch (err) {
+        console.error('Failed to initialise client auth:', err)
+      } finally {
         setIsAuthLoading(false)
-      })
+      }
+    }
+    initAuth()
   }, [])
 
-  // 2. Load cart, wishlist, and orders from localStorage on mount (NEVER restore user from localStorage)
+  // 2. Load cart & wishlist from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem('yetaxahai-store')
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
-        // Strictly remove any legacy user to prevent automatic login
-        delete parsed.user
-        // Rehydrate book references
+        delete parsed.user // Strictly ensure no user is ever loaded from general store
         if (parsed.cart) {
           parsed.cart = parsed.cart.map((item: { book: { id: string }; quantity: number }) => ({
             ...item,
@@ -336,7 +354,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // 3. Save to localStorage on state change (ONLY cart, wishlist, orders - NEVER user)
+  // 3. Save cart and wishlist on state change
   useEffect(() => {
     const toSave = {
       cart: state.cart.map(item => ({ book: { id: item.book.id }, quantity: item.quantity })),
@@ -354,39 +372,73 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [state.cart, state.wishlist, state.orders, state.user])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      })
-      const data = await res.json()
-      if (res.ok && data.user) {
-        dispatch({ type: 'LOGIN', payload: data.user })
-        mergeGuestCartOnLogin(state.cart, data.user)
-        fetch('/api/orders')
-          .then(r => r.json())
-          .then(orderData => {
-            if (orderData?.orders) {
-              dispatch({ type: 'SET_ORDERS', payload: orderData.orders })
-            }
-          })
-          .catch(() => {})
-        return true
-      }
-      return false
-    } catch {
-      return false
+  // Login using localStorage PBKDF2 Web Crypto API
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const lockout = getLockoutState()
+    if (lockout.lockedUntil && Date.now() < lockout.lockedUntil) {
+      const remaining = Math.ceil((lockout.lockedUntil - Date.now()) / 1000)
+      return { success: false, error: `Account locked. Please wait ${remaining} seconds.` }
     }
+
+    const cleanEmail = email.trim().toLowerCase()
+    const users = getStoredUsers()
+    const foundUser = users.find(u => u.email.toLowerCase() === cleanEmail)
+
+    if (!foundUser) {
+      const lock = recordFailedAttempt()
+      return {
+        success: false,
+        error: lock.isLocked
+          ? `Too many failed attempts. Locked for ${lock.remainingSeconds} seconds.`
+          : 'Invalid email or password.',
+      }
+    }
+
+    const isValid = await verifyPassword(password, foundUser.passwordRecord)
+    if (!isValid) {
+      const lock = recordFailedAttempt()
+      return {
+        success: false,
+        error: lock.isLocked
+          ? `Too many failed attempts. Locked for ${lock.remainingSeconds} seconds.`
+          : 'Invalid email or password.',
+      }
+    }
+
+    // Success - clear lockout counter
+    clearLockout()
+
+    const sessionUser: SessionUser = {
+      id: foundUser.id,
+      name: foundUser.name,
+      email: foundUser.email,
+      role: foundUser.role,
+      avatar: foundUser.avatar,
+      phone: foundUser.phone,
+      address: foundUser.address,
+    }
+
+    setSession(sessionUser)
+    dispatch({ type: 'LOGIN', payload: foundUser as unknown as User })
+    mergeGuestCartOnLogin(state.cart, foundUser)
+
+    // Load orders for this user
+    try {
+      const ordersRaw = localStorage.getItem(STORAGE_KEYS.ORDERS_PREFIX + foundUser.id)
+      if (ordersRaw) {
+        dispatch({ type: 'SET_ORDERS', payload: JSON.parse(ordersRaw) })
+      } else {
+        dispatch({ type: 'SET_ORDERS', payload: [] })
+      }
+    } catch {
+      dispatch({ type: 'SET_ORDERS', payload: [] })
+    }
+
+    return { success: true }
   }
 
+  // Logout - fully clears session
   const logout = async (): Promise<void> => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' })
-    } catch {
-      // ignore
-    }
     if (state.user) {
       try {
         localStorage.setItem(
@@ -395,6 +447,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         )
       } catch {}
     }
+    setSession(null)
     dispatch({ type: 'LOGOUT' })
     dispatch({ type: 'CLEAR_CART' })
     dispatch({ type: 'SET_ORDERS', payload: [] })
@@ -406,79 +459,134 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         parsed.cart = []
         localStorage.setItem('yetaxahai-store', JSON.stringify(parsed))
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
-  const register = async (data: { email: string; password: string; name: string; phone?: string; address?: string }): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      const result = await res.json()
-      if (res.ok && result.user) {
-        dispatch({ type: 'LOGIN', payload: result.user })
-        mergeGuestCartOnLogin(state.cart, result.user)
-        return true
-      }
-      return false
-    } catch {
-      return false
+  // Sign up - creates customer account in localStorage with PBKDF2 hash
+  const register = async (data: {
+    email: string
+    password: string
+    name: string
+    phone?: string
+    address?: string
+  }): Promise<{ success: boolean; error?: string }> => {
+    const cleanEmail = data.email.trim().toLowerCase()
+    if (!cleanEmail) return { success: false, error: 'Email is required.' }
+    if (!data.name.trim()) return { success: false, error: 'Name is required.' }
+    if (!data.password || data.password.length < 8) {
+      return { success: false, error: 'Password must be at least 8 characters long.' }
     }
+
+    const users = getStoredUsers()
+    if (users.some(u => u.email.toLowerCase() === cleanEmail)) {
+      return { success: false, error: 'An account with this email already exists.' }
+    }
+
+    const passwordRecord = await hashPassword(data.password)
+    const newUser: StoredUser = {
+      id: `usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: data.name.trim(),
+      email: cleanEmail,
+      passwordRecord,
+      role: 'customer', // Always customer, ignoring any form/state role tampering
+      phone: data.phone?.trim() || undefined,
+      address: data.address?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+      booksOrdered: 0,
+      totalSpent: 0,
+    }
+
+    users.push(newUser)
+    saveStoredUsers(users)
+
+    const sessionUser: SessionUser = {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      role: newUser.role,
+      avatar: newUser.avatar,
+      phone: newUser.phone,
+      address: newUser.address,
+    }
+
+    setSession(sessionUser)
+    dispatch({ type: 'LOGIN', payload: newUser as unknown as User })
+    mergeGuestCartOnLogin(state.cart, newUser)
+    dispatch({ type: 'SET_ORDERS', payload: [] })
+
+    return { success: true }
   }
 
+  // Update profile in localStorage
   const updateProfile = async (data: { name?: string; phone?: string; address?: unknown }): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/auth/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      const result = await res.json()
-      if (res.ok && result.user) {
-        dispatch({ type: 'LOGIN', payload: result.user })
-        return true
-      }
-      return false
-    } catch {
-      return false
+    if (!state.user) return false
+    const users = getStoredUsers()
+    const idx = users.findIndex(u => u.id === state.user!.id)
+    if (idx === -1) return false
+
+    if (data.name) users[idx].name = data.name.trim()
+    if (data.phone !== undefined) users[idx].phone = data.phone
+    if (data.address !== undefined) users[idx].address = data.address
+
+    saveStoredUsers(users)
+
+    const sessionUser = getSession()
+    if (sessionUser) {
+      if (data.name) sessionUser.name = data.name.trim()
+      if (data.phone !== undefined) sessionUser.phone = data.phone
+      if (data.address !== undefined) sessionUser.address = data.address
+      setSession(sessionUser)
     }
+
+    dispatch({ type: 'LOGIN', payload: users[idx] as unknown as User })
+    return true
   }
 
-  const uploadAvatar = async (file: Blob | File): Promise<{ success: boolean; avatarUrl?: string; error?: string }> => {
+  // Upload avatar - saves WebP data URL to user record in localStorage
+  const uploadAvatar = async (dataUrl: string): Promise<{ success: boolean; avatarUrl?: string; error?: string }> => {
+    if (!state.user) return { success: false, error: 'Unauthorized' }
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch('/api/auth/avatar', {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await res.json()
-      if (res.ok && data.user) {
-        dispatch({ type: 'LOGIN', payload: data.user })
-        return { success: true, avatarUrl: data.avatarUrl }
+      const users = getStoredUsers()
+      const idx = users.findIndex(u => u.id === state.user!.id)
+      if (idx === -1) return { success: false, error: 'User not found' }
+
+      users[idx].avatar = dataUrl
+      saveStoredUsers(users)
+
+      const session = getSession()
+      if (session) {
+        session.avatar = dataUrl
+        setSession(session)
       }
-      return { success: false, error: data.error || 'Failed to upload photo.' }
+
+      dispatch({ type: 'LOGIN', payload: users[idx] as unknown as User })
+      return { success: true, avatarUrl: dataUrl }
     } catch (err: any) {
-      return { success: false, error: err.message || 'Network error while uploading.' }
+      if (err?.name === 'QuotaExceededError' || err?.code === 22) {
+        return { success: false, error: 'Browser storage quota reached. Please use a smaller photo.' }
+      }
+      return { success: false, error: 'Failed to save avatar image.' }
     }
   }
 
+  // Remove avatar - falls back to initials
   const removeAvatar = async (): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/auth/avatar', { method: 'DELETE' })
-      const data = await res.json()
-      if (res.ok && data.user) {
-        dispatch({ type: 'LOGIN', payload: data.user })
-        return true
-      }
-      return false
-    } catch {
-      return false
+    if (!state.user) return false
+    const users = getStoredUsers()
+    const idx = users.findIndex(u => u.id === state.user!.id)
+    if (idx === -1) return false
+
+    delete users[idx].avatar
+    saveStoredUsers(users)
+
+    const session = getSession()
+    if (session) {
+      delete session.avatar
+      setSession(session)
     }
+
+    dispatch({ type: 'LOGIN', payload: users[idx] as unknown as User })
+    return true
   }
 
   const addToCart = (book: Book, quantity = 1) => {
@@ -500,15 +608,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const clearCart = () => dispatch({ type: 'CLEAR_CART' })
 
   const getCartTotal = () => {
-    const subtotal = state.cart.reduce((sum, item) => sum + item.book.price * item.quantity, 0)
+    // Recalculate totals directly from mockBooks catalog
+    const subtotal = state.cart.reduce((sum, item) => {
+      const catalogBook = books.find(b => b.id === item.book.id) || item.book
+      return sum + catalogBook.price * item.quantity
+    }, 0)
     const shippingCost = state.shipping?.method === 'express' ? 200 : state.shipping?.method === 'sameday' ? 300 : 100
-    const discount = 0 // Could be calculated from coupons
+    const finalShipping = state.shipping?.method === 'standard' && subtotal >= 1000 ? 0 : shippingCost
+    const discount = 0
     const codFee = state.payment.method === 'cod' ? 50 : 0
     return {
       subtotal,
-      shipping: shippingCost,
+      shipping: finalShipping,
       discount,
-      total: subtotal + shippingCost - discount + codFee,
+      total: subtotal + finalShipping - discount + codFee,
     }
   }
 
@@ -524,8 +637,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'MOVE_TO_CART', payload: bookId })
   }
 
-  const isInWishlist = (bookIdOrSlug: string) => {
-    return state.wishlist.some(item => item.book.id === bookIdOrSlug || item.book.slug === bookIdOrSlug)
+  const isInWishlist = (bookId: string) => {
+    return state.wishlist.some(item => item.book.id === bookId || item.book.slug === bookId)
   }
 
   const setShipping = (info: ShippingInfo) => {
@@ -537,23 +650,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   const processPayment = async (): Promise<boolean> => {
-    // Simulate payment processing
     dispatch({ type: 'SET_PAYMENT_STATUS', payload: 'processing' })
-    
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    
+    await new Promise(resolve => setTimeout(resolve, 1200))
+
     if (state.payment.method === 'cod') {
       dispatch({ type: 'SET_PAYMENT_STATUS', payload: 'success' })
       return true
     }
-    
-    // For eSewa/Khalti, move to OTP/MPIN step
     if (state.payment.method === 'esewa') {
       dispatch({ type: 'SET_PAYMENT_STATUS', payload: 'otp' })
     } else if (state.payment.method === 'khalti') {
       dispatch({ type: 'SET_PAYMENT_STATUS', payload: 'mpin' })
     }
-    
     return true
   }
 
@@ -561,62 +669,109 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_CHECKOUT_STEP', payload: step })
   }
 
+  // Place order: Demo guard and price recalculation from mockBooks
   const placeOrder = async (
     transactionIdOverride?: string
   ): Promise<{ success: boolean; order?: Order; error?: string; status?: number }> => {
+    // Demo only: Client-side purchase check. Real enforcement needs a backend.
     if (!state.user) {
       return { success: false, error: 'Unauthorized. Please sign in to place an order.', status: 401 }
     }
 
-    try {
-      const payload = {
-        items: state.cart.map(item => ({
-          bookId: item.book.id,
-          quantity: item.quantity,
-          format: 'Paperback',
-        })),
-        shippingAddress: {
-          name: state.shipping?.name || state.user.name || '',
-          phone: state.shipping?.phone || state.user.phone || '',
-          line1: state.shipping?.line1 || '',
-          line2: state.shipping?.line2 || '',
-          city: state.shipping?.city || '',
-          district: state.shipping?.district || '',
-          province: state.shipping?.province || '',
-          postalCode: state.shipping?.postalCode || '44600',
-          notes: state.shipping?.notes || '',
-        },
-        shippingMethod: state.shipping?.method || 'standard',
-        paymentMethod: state.payment.method || 'cod',
-        transactionId: transactionIdOverride || state.payment.transactionId,
-      }
+    if (state.cart.length === 0) {
+      return { success: false, error: 'Your cart is empty.', status: 400 }
+    }
 
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+    // Require complete delivery address before placing order
+    const userAddr = typeof state.user.address === 'object' && state.user.address !== null
+      ? (state.user.address as Record<string, string | undefined>)
+      : null
 
-      const data = await res.json()
-      if (res.ok && data.success && data.order) {
-        dispatch({ type: 'PLACE_ORDER', payload: data.order })
-        return { success: true, order: data.order }
-      }
+    const addrName = state.shipping?.name || state.user.name || ''
+    const addrPhone = state.shipping?.phone || state.user.phone || ''
+    const addrLine1 = state.shipping?.line1 || userAddr?.line1 || userAddr?.tole || ''
+    const addrCity = state.shipping?.city || userAddr?.city || userAddr?.municipality || ''
+    const addrDistrict = state.shipping?.district || userAddr?.district || 'Kathmandu'
+    const addrProvince = state.shipping?.province || userAddr?.province || 'Bagmati'
 
+    if (!addrName.trim() || !addrPhone.trim() || !addrLine1.trim() || !addrCity.trim()) {
       return {
         success: false,
-        error: data.error || 'Failed to place order.',
-        status: res.status,
-      }
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message || 'Network error while placing order.',
+        error: 'Please provide a complete delivery address (name, phone, street/tole, city).',
+        status: 400,
       }
     }
+
+    // Recalculate totals directly from mockBooks catalog (never trust client prices)
+    let subtotal = 0
+    const verifiedItems = state.cart.map(item => {
+      const catalogBook = books.find(b => b.id === item.book.id || b.slug === item.book.id) || item.book
+      const verifiedPrice = catalogBook.price
+      subtotal += verifiedPrice * item.quantity
+      return {
+        bookId: catalogBook.id,
+        quantity: item.quantity,
+        price: verifiedPrice,
+        format: 'Paperback',
+      }
+    })
+
+    const shippingMethod = state.shipping?.method || 'standard'
+    let shippingCost = shippingMethod === 'express' ? 200 : shippingMethod === 'sameday' ? 300 : 100
+    if (shippingMethod === 'standard' && subtotal >= 1000) {
+      shippingCost = 0
+    }
+    const codFee = state.payment.method === 'cod' ? 50 : 0
+    const total = subtotal + shippingCost + codFee
+
+    const now = new Date()
+    const deliveryDays = shippingMethod === 'express' ? 3 : shippingMethod === 'sameday' ? 0 : 7
+    const estimatedDelivery = new Date(now.getTime() + deliveryDays * 86400000).toISOString().slice(0, 10)
+
+    const newOrder: Order = {
+      id: `Yetaxahai-${now.getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`,
+      userId: state.user.id,
+      items: verifiedItems,
+      subtotal,
+      shipping: shippingCost,
+      discount: 0,
+      total,
+      status: 'confirmed',
+      paymentMethod: state.payment.method || 'cod',
+      paymentStatus: state.payment.method === 'cod' ? 'pending' : 'paid',
+      transactionId: transactionIdOverride || state.payment.transactionId || `TXN-DEMO-${Date.now()}`,
+      createdAt: now.toISOString(),
+      estimatedDelivery,
+      shippingAddress: {
+        name: addrName.trim(),
+        phone: addrPhone.trim(),
+        line1: addrLine1.trim(),
+        line2: state.shipping?.line2 || userAddr?.line2 || '',
+        city: addrCity.trim(),
+        district: addrDistrict,
+        province: addrProvince,
+        postalCode: state.shipping?.postalCode || userAddr?.postalCode || '44600',
+        notes: state.shipping?.notes || '',
+      },
+      shippingMethod,
+    }
+
+    // Save order in localStorage per user
+    try {
+      const orderKey = STORAGE_KEYS.ORDERS_PREFIX + state.user.id
+      const existingOrdersRaw = localStorage.getItem(orderKey)
+      const existingOrders: Order[] = existingOrdersRaw ? JSON.parse(existingOrdersRaw) : []
+      existingOrders.unshift(newOrder)
+      localStorage.setItem(orderKey, JSON.stringify(existingOrders))
+      dispatch({ type: 'PLACE_ORDER', payload: newOrder })
+    } catch (err) {
+      console.error('Failed to save order to localStorage:', err)
+    }
+
+    return { success: true, order: newOrder }
   }
 
-  // Admin stats computed
+  // Admin stats
   const adminStats: AdminStats = {
     totalRevenue: 425000,
     totalOrders: 1247,
@@ -631,7 +786,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   return (
     <StoreContext.Provider
       value={{
-        // State access
         state,
         user: state.user,
         cart: state.cart,
@@ -643,25 +797,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         adminStats,
         dispatch,
         isAuthLoading,
-        // Auth
         login,
         logout,
         register,
         updateProfile,
         uploadAvatar,
         removeAvatar,
-        // Cart
         addToCart,
         removeFromCart,
         updateQuantity,
         clearCart,
         getCartTotal,
-        // Wishlist
         addToWishlist,
         removeFromWishlist,
         moveToCart,
         isInWishlist,
-        // Checkout
         setShipping,
         setPaymentMethod,
         setPaymentStatus: (status) => dispatch({ type: 'SET_PAYMENT_STATUS', payload: status }),

@@ -97,6 +97,7 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
     )
   }
 
+  // Demo only. Real admin access needs a backend.
   // Redirect if not admin (only after auth has resolved)
   if (!user || user.role !== "admin") {
     return (
@@ -239,12 +240,17 @@ export default function AdminDashboard({ onNavigate }: AdminDashboardProps) {
       >
         {/* Top Header */}
         <header className="bg-card border-b border-border px-6 py-4 sticky top-0 z-30">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <h1 className="text-2xl font-serif font-bold text-foreground capitalize">
-                {activeSection === "overview" ? "Dashboard" : activeSection}
-              </h1>
-              <p className="text-sm text-muted-foreground">
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-serif font-bold text-foreground capitalize">
+                  {activeSection === "overview" ? "Dashboard" : activeSection}
+                </h1>
+                <span className="text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-md border border-amber-500/20 font-medium">
+                  Demo admin: changes are saved only in this browser.
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-0.5">
                 Welcome back, {user.name}
               </p>
             </div>

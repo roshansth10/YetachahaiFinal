@@ -213,11 +213,11 @@ export default function ProfilePage({ onNavigate, initialTab = "profile" }: Prof
     }
   }
 
-  // Save cropped photo to server
-  const handleSaveCroppedPhoto = async (croppedBlob: Blob) => {
+  // Save cropped photo to user record in localStorage
+  const handleSaveCroppedPhoto = async (croppedDataUrl: string) => {
     setIsUploadingPhoto(true)
     try {
-      const res = await uploadAvatar(croppedBlob)
+      const res = await uploadAvatar(croppedDataUrl)
       if (res.success) {
         toast.success("Profile photo updated", {
           description: "Your new avatar is live across Yetaxahai.",
@@ -229,7 +229,7 @@ export default function ProfilePage({ onNavigate, initialTab = "profile" }: Prof
           description: res.error || "Unable to save profile photo. Please try again.",
           action: {
             label: "Retry",
-            onClick: () => handleSaveCroppedPhoto(croppedBlob),
+            onClick: () => handleSaveCroppedPhoto(croppedDataUrl),
           },
         })
       }

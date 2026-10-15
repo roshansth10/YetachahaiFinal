@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Heart, ShoppingCart, Star } from 'lucide-react'
 import { useStore } from '@/lib/store'
@@ -17,6 +18,7 @@ interface BookCardProps {
 
 export default function BookCard({ book, variant = 'default', showRank, onNavigate, priority = false }: BookCardProps) {
   const { user, addToCart, addToWishlist, removeFromWishlist, isInWishlist } = useStore()
+  const [imgError, setImgError] = useState(false)
   const inWishlist = isInWishlist(book.id) || isInWishlist(book.slug)
 
   const handleAddToCart = (e: React.MouseEvent) => {
@@ -263,15 +265,23 @@ export default function BookCard({ book, variant = 'default', showRank, onNaviga
         </button>
 
         {/* Real Cover Image: Full, Uncropped, Contained with authentic book shadow/spine effect */}
-        <div className="relative h-full flex items-center justify-center">
-          <img
-            src={book.coverImage}
-            alt={`Cover of ${book.title} by ${book.author}`}
-            loading={priority ? 'eager' : 'lazy'}
-            width={240}
-            height={360}
-            className="h-full w-auto max-w-full object-contain rounded drop-shadow-[2px_4px_10px_rgba(0,0,0,0.18)] group-hover:scale-105 transition-transform duration-300"
-          />
+        <div className="relative h-full w-full flex items-center justify-center">
+          {!imgError && book.coverImage ? (
+            <img
+              src={book.coverImage}
+              alt={`Cover of ${book.title} by ${book.author}`}
+              loading={priority ? 'eager' : 'lazy'}
+              width={240}
+              height={360}
+              onError={() => setImgError(true)}
+              className="h-full w-auto max-w-full object-contain rounded drop-shadow-[2px_4px_10px_rgba(0,0,0,0.18)] group-hover:scale-105 transition-transform duration-300"
+            />
+          ) : (
+            <div className="h-full w-full flex flex-col items-center justify-center p-3 text-center bg-[#f2ede4] dark:bg-muted border border-border/60 rounded">
+              <span className="font-serif font-bold text-xs sm:text-sm text-foreground line-clamp-3">{book.title}</span>
+              <span className="text-[10px] text-muted-foreground mt-1 line-clamp-1">{book.author}</span>
+            </div>
+          )}
         </div>
       </div>
 

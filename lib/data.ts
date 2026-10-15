@@ -1439,32 +1439,18 @@ export const categories: Category[] = rawCategories.map(cat => ({
   ).length,
 }))
 
-// Mock Users
+// Mock Users - Demo accounts are managed in client localStorage
 export const mockUsers: User[] = [
   {
-    id: '1',
+    id: 'admin_demo_01',
     name: 'Admin User',
     email: 'admin@yetaxahai.com',
-    password: 'admin123',
+    password: '',
     role: 'admin',
     memberSince: '2023-01-15',
     booksOrdered: 0,
     totalSpent: 0,
     createdAt: '2023-01-15T00:00:00Z',
-  },
-  {
-    id: '2',
-    name: 'Avid Reader',
-    email: 'customer@yetaxahai.com',
-    password: 'password123',
-    role: 'customer',
-    phone: '+977-9841234567',
-    address: 'Thamel Marg 45, Kathmandu',
-    memberSince: '2023-06-20',
-    booksOrdered: 12,
-    totalSpent: 8750,
-    preferredPayment: 'esewa',
-    createdAt: '2023-06-20T00:00:00Z',
   },
 ]
 

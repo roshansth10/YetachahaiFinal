@@ -327,17 +327,17 @@ export default function HomePage({ onNavigate }: HomePageProps) {
               Browse by Genre
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Explore curated titles across all {dynamicCategories.length} major literary categories
+              Explore curated titles across all {dynamicCategories.length} literary genres
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6">
             {dynamicCategories.map((category) => {
               const style = genreTileStyles[category.slug] || { bg: 'bg-[#f6ede6]', border: 'border-[#dfcec1]' }
               return (
                 <motion.div
                   key={category.id}
-                  whileHover={{ y: -3 }}
+                  whileHover={{ y: -2 }}
                   whileTap={{ scale: 0.98 }}
                 >
                   <button

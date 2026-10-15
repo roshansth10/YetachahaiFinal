@@ -45,8 +45,8 @@ async function runApiTests() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: 'customer@yetaxahai.com',
-      password: 'password123',
+      email: 'tester@yetaxahai.com',
+      password: 'TestPassword#2026',
     }),
   })
   console.log(`POST /api/auth/login status: ${loginRes.status} (Expected: 200)`)
@@ -267,12 +267,12 @@ async function runBrowserTests() {
     }
 
     // Step E: Sign In on /login and verify Cart Merge
-    console.log('Signing in as customer@yetaxahai.com...')
+    console.log('Signing in as tester@yetaxahai.com...')
     await page.goto(`${BASE_URL}/login?redirect=/checkout`, { waitUntil: 'networkidle2' })
     await new Promise(r => setTimeout(r, 800))
 
-    await page.type('input[type="email"]', 'customer@yetaxahai.com')
-    await page.type('input[type="password"]', 'password123')
+    await page.type('input[type="email"]', 'tester@yetaxahai.com')
+    await page.type('input[type="password"]', 'TestPassword#2026')
     await page.click('button[type="submit"]')
 
     // Wait for redirect to /checkout

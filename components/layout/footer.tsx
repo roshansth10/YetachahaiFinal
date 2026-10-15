@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { categories } from "@/lib/data";
+import { categories, mockBooks } from "@/lib/data";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -135,7 +135,7 @@ export default function Footer({ onNavigate }: FooterProps) {
                   onClick={() => onNavigate("catalog")}
                   className="text-sm text-muted-foreground hover:text-primary transition-colors text-left"
                 >
-                  All 40 Books
+                  All {mockBooks.length} Books
                 </button>
               </li>
               <li>
